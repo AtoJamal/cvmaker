@@ -1,6 +1,8 @@
 
 import logging
 import os
+from flask import Flask
+import threading
 import re
 import json
 from datetime import datetime
@@ -1708,6 +1710,21 @@ class CVBot:
                 logger.error(f"Error running bot: {str(e)}")
                 raise
 
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def index():
+    return 'Bot is alive!', 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
+
+    # Start the Telegram bot
     bot = CVBot(telegram_bot_token)
-    bot.run()
+    bot.application.run_polling()
+
+
