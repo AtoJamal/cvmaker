@@ -1,4 +1,3 @@
-
 import logging
 import os
 from flask import Flask
@@ -620,7 +619,7 @@ class CVBot:
             self.get_prompt(session, 'select_language'),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("English", callback_data="lang_en")],
-                [InlineKeyboardButton("አማርኛ (Amharic)", callback_data="lang_am")]
+                [InlineKeyboardButton("አማርኛ", callback_data="lang_am")]
             ])
         )
         return SELECT_LANGUAGE
@@ -775,8 +774,7 @@ class CVBot:
             await update.message.reply_text(self.get_prompt(session, 'linkedin_profile'))
             return COLLECT_CONTACT_INFO
         elif current_field == 'linkedinProfile':
-            if update.message.text.lower() != 'skip':
-                session['candidate_data']['linkedinProfile'] = update.message.text
+            session['candidate_data']['linkedinProfile'] = update.message.text if update.message.text.lower() != 'skip' else None
             session['current_field'] = 'city'
             await update.message.reply_text(self.get_prompt(session, 'city'))
             return COLLECT_CONTACT_INFO
@@ -800,60 +798,13 @@ class CVBot:
         allowed_mime_types = ['image/jpeg', 'image/png', 'application/pdf']
         allowed_extensions = ['jpg', 'jpeg', 'png', 'pdf']
         
-        try:
-            if update.message.text and update.message.text.lower() == 'skip':
-                session['candidate_data']['profileUrl'] = None
-                await update.message.reply_text(
-                    self.get_prompt(session, 'profile_image_skip'),
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
-                    ])
-                )
+        if update.message.photo:
+            photo = update.message.photo[-1]
+            file = await photo.get_file()
+            if file.file_size > max_size:
+                await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
                 return COLLECT_PROFILE_IMAGE
-            elif update.message.photo:
-                photo = update.message.photo[-1]
-                file = await photo.get_file()
-                if file.file_size > max_size:
-                    await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
-                    return COLLECT_PROFILE_IMAGE
-                session['candidate_data']['profileUrl'] = file.file_path
-                user = update.effective_user
-                caption = f"🖼️ Profile Image Received\n\n👤 User: {user.first_name or ''} {user.last_name or ''}".strip()
-                if user.username:
-                    caption += f" (@{user.username})"
-                caption += f"\n🆔 User ID: {telegram_id}"
-                await update.message.copy(
-                    chat_id=private_channel_id,
-                    caption=caption
-                )
-            elif update.message.document:
-                document = update.message.document
-                if document.file_size > max_size:
-                    await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
-                    return COLLECT_PROFILE_IMAGE
-                if document.mime_type not in allowed_mime_types:
-                    await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
-                    return COLLECT_PROFILE_IMAGE
-                if document.file_name:
-                    extension = document.file_name.split('.')[-1].lower()
-                    if extension not in allowed_extensions:
-                        await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
-                        return COLLECT_PROFILE_IMAGE
-                file = await document.get_file()
-                session['candidate_data']['profileUrl'] = file.file_path
-                user = update.effective_user
-                caption = f"🖼️ Profile Image Received\n\n👤 User: {user.first_name or ''} {user.last_name or ''}".strip()
-                if user.username:
-                    caption += f" (@{user.username})"
-                caption += f"\n🆔 User ID: {telegram_id}"
-                await update.message.copy(
-                    chat_id=private_channel_id,
-                    caption=caption
-                )
-            else:
-                await update.message.reply_text(self.get_prompt(session, 'profile_image_prompt'))
-                return COLLECT_PROFILE_IMAGE
-            
+            session['candidate_data']['profileImage'] = file.file_path
             await update.message.reply_text(
                 self.get_prompt(session, 'profile_image_success'),
                 reply_markup=InlineKeyboardMarkup([
@@ -861,12 +812,43 @@ class CVBot:
                 ])
             )
             return COLLECT_PROFILE_IMAGE
-        except Exception as e:
-            logger.error(f"Error in collect_profile_image: {str(e)}")
+        elif update.message.document:
+            document = update.message.document
+            if document.file_size > max_size:
+                await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
+                return COLLECT_PROFILE_IMAGE
+            if document.mime_type not in allowed_mime_types:
+                await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
+                return COLLECT_PROFILE_IMAGE
+            if document.file_name:
+                extension = document.file_name.split('.')[-1].lower()
+                if extension not in allowed_extensions:
+                    await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
+                    return COLLECT_PROFILE_IMAGE
+            file = await document.get_file()
+            session['candidate_data']['profileImage'] = file.file_path
+            await update.message.reply_text(
+                self.get_prompt(session, 'profile_image_success'),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                ])
+            )
+            return COLLECT_PROFILE_IMAGE
+        elif update.message.text and update.message.text.lower() == 'skip':
+            session['candidate_data']['profileImage'] = None
+            await update.message.reply_text(
+                self.get_prompt(session, 'profile_image_skip'),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                ])
+            )
+            return COLLECT_PROFILE_IMAGE
+        else:
+            await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
             return COLLECT_PROFILE_IMAGE
 
     async def handle_profile_image_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle the user's choice to proceed after profile image"""
+        """Handle choice to continue after profile image"""
         query = update.callback_query
         await query.answer()
         
@@ -1355,12 +1337,26 @@ class CVBot:
             
             await query.edit_message_text(self.get_prompt(session, 'payment_instructions'))
             return PAYMENT
-        else:
-            await query.edit_message_text(
-                self.get_prompt(session, 'edit_section'),
-                reply_markup=self.get_profile_sections_keyboard(session)
-            )
-            return START
+        elif query.data == "edit_no":
+            # Reset session data to start collecting from scratch
+            session['candidate_data'] = {'availability': 'To be specified'}
+            session['careerObjectives'] = []
+            session['skills'] = []
+            session['education'] = []
+            session['languages'] = []
+            session['workExperiences'] = []
+            session['certificationsAwards'] = []
+            session['otherActivities'] = []
+            session['projects'] = []
+            session['current_field'] = 'firstName'
+            session['current_work_experience'] = {}
+            session['current_education'] = {}
+            session['current_skill'] = {}
+            session['current_certification'] = {}
+            session['current_project'] = {}
+            session['current_language'] = {}
+            await query.edit_message_text(self.get_prompt(session, 'first_name'))
+            return COLLECT_PERSONAL_INFO
 
     async def edit_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle request to edit information"""
@@ -1726,5 +1722,3 @@ if __name__ == "__main__":
     # Start the Telegram bot
     bot = CVBot(telegram_bot_token)
     bot.application.run_polling()
-
-
