@@ -43,10 +43,6 @@ import sys
 if sys.version_info < (3, 6):
     raise RuntimeError("This bot requires Python 3.6 or higher")
 
-# Set up Django environment
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cvbot_backend.settings')
-django.setup()
-
 PROMPTS = {
     'en': {
         'welcome_new': "Welcome to the CV Bot! Let's create your professional CV.\n\nPlease enter your first name:",
@@ -232,6 +228,10 @@ PROMPTS = {
     }
 }
 
+
+# Set up Django environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cvbot_backend.settings')
+django.setup()
 
 # Load environment variables
 load_dotenv()
@@ -619,7 +619,7 @@ class CVBot:
             self.get_prompt(session, 'select_language'),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("English", callback_data="lang_en")],
-                [InlineKeyboardButton("አማርኛ", callback_data="lang_am")]
+                [InlineKeyboardButton("አማርኛ (Amharic)", callback_data="lang_am")]
             ])
         )
         return SELECT_LANGUAGE
