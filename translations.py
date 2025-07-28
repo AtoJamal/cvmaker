@@ -11,7 +11,7 @@ PROMPTS = {
         'work_experience': "Work Experience",
         'education': "Education",
         'skills': "Skills",
-        'career_objective': "Career Objective",
+        'careear_objective': "Career Objective",
         'certifications': "Certifications",
         'projects': "Projects",
         'languages': "Languages",
@@ -88,6 +88,7 @@ PROMPTS = {
         'payment_rejected': "Your payment was rejected: {reason}. Please start a new order with /start.",
         'payment_approved': "Your payment has been approved! Your CV is being processed and will be delivered soon.",
         'reject_reason_prompt': "Please provide the reason for rejecting the payment.",
+        'editing_started':"editing started",
         
 
     },

@@ -43,6 +43,10 @@ import sys
 if sys.version_info < (3, 6):
     raise RuntimeError("This bot requires Python 3.6 or higher")
 
+# Set up Django environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cvbot_backend.settings')
+django.setup()
+
 PROMPTS = {
     'en': {
         'welcome_new': "Welcome to the CV Bot! Let's create your professional CV.\n\nPlease enter your first name:",
@@ -56,7 +60,7 @@ PROMPTS = {
         'work_experience': "Work Experience",
         'education': "Education",
         'skills': "Skills",
-        'career_objective': "Career Objective",
+        'careear_objective': "Career Objective",
         'certifications': "Certifications",
         'projects': "Projects",
         'languages': "Languages",
@@ -133,6 +137,7 @@ PROMPTS = {
         'payment_rejected': "Your payment was rejected: {reason}. Please start a new order with /start.",
         'payment_approved': "Your payment has been approved! Your CV is being processed and will be delivered soon.",
         'reject_reason_prompt': "Please provide the reason for rejecting the payment.",
+        'editing_started':"editing started",
         
 
     },
@@ -228,10 +233,6 @@ PROMPTS = {
     }
 }
 
-
-# Set up Django environment
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cvbot_backend.settings')
-django.setup()
 
 # Load environment variables
 load_dotenv()
@@ -619,7 +620,7 @@ class CVBot:
             self.get_prompt(session, 'select_language'),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("English", callback_data="lang_en")],
-                [InlineKeyboardButton("አማርኛ (Amharic)", callback_data="lang_am")]
+                [InlineKeyboardButton("አማርኛ", callback_data="lang_am")]
             ])
         )
         return SELECT_LANGUAGE
@@ -789,7 +790,7 @@ class CVBot:
             return COLLECT_PROFILE_IMAGE
 
     async def collect_profile_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Collect profile image from candidate"""
+        """Collect profile image from candidate and forward to private channel"""
         telegram_id = str(update.effective_user.id)
         session = self.get_user_session(telegram_id)
         session['chat_id'] = update.effective_chat.id
@@ -798,57 +799,77 @@ class CVBot:
         allowed_mime_types = ['image/jpeg', 'image/png', 'application/pdf']
         allowed_extensions = ['jpg', 'jpeg', 'png', 'pdf']
         
-        if update.message.photo:
-            photo = update.message.photo[-1]
-            file = await photo.get_file()
-            if file.file_size > max_size:
-                await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
+        try:
+            if update.message.text and update.message.text.lower() == 'skip':
+                await update.message.reply_text(
+                    self.get_prompt(session, 'profile_image_skip'),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                    ])
+                )
                 return COLLECT_PROFILE_IMAGE
-            session['candidate_data']['profileImage'] = file.file_path
-            await update.message.reply_text(
-                self.get_prompt(session, 'profile_image_success'),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
-                ])
-            )
-            return COLLECT_PROFILE_IMAGE
-        elif update.message.document:
-            document = update.message.document
-            if document.file_size > max_size:
-                await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
+            elif update.message.photo or update.message.document:
+                user = update.effective_user
+                user_info = f"🖼️ Profile Image Received\n\n"
+                user_info += f"👤 User: {user.first_name or ''} {user.last_name or ''}".strip()
+                if user.username:
+                    user_info += f" (@{user.username})"
+                user_info += f"\n🆔 User ID: {telegram_id}"
+                user_info += f"\n📞 Phone: {session['candidate_data'].get('phoneNumber', 'N/A')}"
+                
+                file_url = None
+                if update.message.photo:
+                    photo = update.message.photo[-1]
+                    file = await photo.get_file()
+                    if file.file_size > max_size:
+                        await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
+                        return COLLECT_PROFILE_IMAGE
+                    file_url = file.file_path
+                    await context.bot.send_photo(
+                        chat_id=private_channel_id,
+                        photo=photo.file_id,
+                        caption=user_info
+                    )
+                    logger.info(f"Profile photo forwarded to private channel for user {telegram_id}")
+                elif update.message.document:
+                    document = update.message.document
+                    if document.file_size > max_size:
+                        await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
+                        return COLLECT_PROFILE_IMAGE
+                    if document.mime_type not in allowed_mime_types:
+                        await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
+                        return COLLECT_PROFILE_IMAGE
+                    if document.file_name:
+                        extension = document.file_name.split('.')[-1].lower()
+                        if extension not in allowed_extensions:
+                            await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
+                            return COLLECT_PROFILE_IMAGE
+                    file = await document.get_file()
+                    file_url = file.file_path
+                    await context.bot.send_document(
+                        chat_id=private_channel_id,
+                        document=document.file_id,
+                        caption=user_info
+                    )
+                    logger.info(f"Profile document forwarded to private channel for user {telegram_id}")
+                
+                session['candidate_data']['profileImageUrl'] = file_url
+                await update.message.reply_text(
+                    self.get_prompt(session, 'profile_image_success'),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                    ])
+                )
                 return COLLECT_PROFILE_IMAGE
-            if document.mime_type not in allowed_mime_types:
-                await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
+            else:
+                await update.message.reply_text(self.get_prompt(session, 'profile_image_prompt'))
                 return COLLECT_PROFILE_IMAGE
-            if document.file_name:
-                extension = document.file_name.split('.')[-1].lower()
-                if extension not in allowed_extensions:
-                    await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
-                    return COLLECT_PROFILE_IMAGE
-            file = await document.get_file()
-            session['candidate_data']['profileImage'] = file.file_path
-            await update.message.reply_text(
-                self.get_prompt(session, 'profile_image_success'),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
-                ])
-            )
+        except Exception as e:
+            logger.error(f"Error in collect_profile_image: {str(e)}")
+            await update.message.reply_text(self.get_prompt(session, 'error_message'))
             return COLLECT_PROFILE_IMAGE
-        elif update.message.text and update.message.text.lower() == 'skip':
-            session['candidate_data']['profileImage'] = None
-            await update.message.reply_text(
-                self.get_prompt(session, 'profile_image_skip'),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
-                ])
-            )
-            return COLLECT_PROFILE_IMAGE
-        else:
-            await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
-            return COLLECT_PROFILE_IMAGE
-
     async def handle_profile_image_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle choice to continue after profile image"""
+        """Handle profile image choice"""
         query = update.callback_query
         await query.answer()
         
@@ -1027,9 +1048,10 @@ class CVBot:
         session = self.get_user_session(telegram_id)
         session['chat_id'] = update.effective_chat.id
         
-        session['careerObjectives'].append({
-            'summaryText': update.message.text
-        })
+        if update.message.text.lower() != 'skip':
+            session['careerObjectives'].append({
+                'summaryText': update.message.text
+            })
         
         await update.message.reply_text(self.get_prompt(session, 'certificate_name'))
         session['current_field'] = 'cert_certificateName'
@@ -1045,6 +1067,15 @@ class CVBot:
         current_field = session['current_field']
         
         if current_field == 'cert_certificateName':
+            if update.message.text.lower() == 'skip':
+                await update.message.reply_text(
+                    self.get_prompt(session, 'add_another_cert'),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(self.get_prompt(session, 'add_another'), callback_data="add_another_cert")],
+                        [InlineKeyboardButton(self.get_prompt(session, 'continue'), callback_data="continue_projects")]
+                    ])
+                )
+                return COLLECT_CERTIFICATIONS
             session['current_certification']['certificateName'] = update.message.text
             session['current_field'] = 'cert_issuer'
             await update.message.reply_text(self.get_prompt(session, 'issuer'))
@@ -1182,10 +1213,11 @@ class CVBot:
         session = self.get_user_session(telegram_id)
         session['chat_id'] = update.effective_chat.id
         
-        session['otherActivities'].append({
-            'activityType': 'Other',
-            'description': update.message.text
-        })
+        if update.message.text.lower() != 'skip':
+            session['otherActivities'].append({
+                'activityType': 'Other',
+                'description': update.message.text
+            })
         
         summary = self.get_prompt(session, 'summary_header')
         summary += f"{self.get_prompt(session, 'summary_name')}: {session['candidate_data'].get('firstName', '')} {session['candidate_data'].get('middleName', '')} {session['candidate_data'].get('lastName', '')}\n"
@@ -1338,26 +1370,29 @@ class CVBot:
             await query.edit_message_text(self.get_prompt(session, 'payment_instructions'))
             return PAYMENT
         elif query.data == "edit_no":
-            # Reset session data to start collecting from scratch
-            session['candidate_data'] = {'availability': 'To be specified'}
-            session['careerObjectives'] = []
-            session['skills'] = []
-            session['education'] = []
-            session['languages'] = []
-            session['workExperiences'] = []
-            session['certificationsAwards'] = []
-            session['otherActivities'] = []
-            session['projects'] = []
-            session['current_field'] = 'firstName'
-            session['current_work_experience'] = {}
-            session['current_education'] = {}
-            session['current_skill'] = {}
-            session['current_certification'] = {}
-            session['current_project'] = {}
-            session['current_language'] = {}
-            await query.edit_message_text(self.get_prompt(session, 'first_name'))
+            # Reset session data but preserve language and chat_id
+            self.user_sessions[telegram_id] = {
+                'language': session['language'],
+                'chat_id': session['chat_id'],
+                'candidate_data': {'availability': 'To be specified'},
+                'careerObjectives': [],
+                'skills': [],
+                'education': [],
+                'languages': [],
+                'workExperiences': [],
+                'certificationsAwards': [],
+                'otherActivities': [],
+                'projects': [],
+                'current_field': 'firstName',
+                'current_work_experience': {},
+                'current_education': {},
+                'current_skill': {},
+                'current_certification': {},
+                'current_project': {},
+                'current_language': {}
+            }
+            await query.message.reply_text(self.get_prompt(self.user_sessions[telegram_id], 'first_name'))
             return COLLECT_PERSONAL_INFO
-
     async def edit_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle request to edit information"""
         query = update.callback_query
