@@ -586,6 +586,7 @@ class CVBot:
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {
                 'language': 'en',
+                'chat_id': None,
                 'candidate_data': {'availability': 'To be specified'},
                 'careerObjectives': [],
                 'skills': [],
@@ -787,29 +788,35 @@ class CVBot:
         elif current_field == 'country':
             session['candidate_data']['country'] = update.message.text
             session['current_field'] = None
-            await update.message.reply_text(self.get_prompt(session, 'profile_image_prompt'))
-            return COLLECT_PROFILE_IMAGE
-
-    async def collect_profile_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Collect profile image from candidate"""
-        telegram_id = str(update.effective_user.id)
-        session = self.get_user_session(telegram_id)
-        session['chat_id'] = update.effective_chat.id
-        
-        max_size = 5 * 1024 * 1024
-        allowed_mime_types = ['image/jpeg', 'image/png', 'application/pdf']
-        allowed_extensions = ['jpg', 'jpeg', 'png', 'pdf']
-        
-        if update.message.text and update.message.text.lower() == 'skip':
             await update.message.reply_text(
-                self.get_prompt(session, 'profile_image_skip'),
+                self.get_prompt(session, 'profile_image_prompt'),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
                 ])
             )
             return COLLECT_PROFILE_IMAGE
+
+    async def collect_profile_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Collect profile image from candidate"""
+        user = update.effective_user
+        telegram_id = str(user.id)
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = update.effective_chat.id
+        
+        max_size = 5 * 1024 * 1024  # 5 MB
+        allowed_mime_types = ['image/jpeg', 'image/png', 'application/pdf']
+        allowed_extensions = ['jpg', 'jpeg', 'png', 'pdf']
+        
+        # Check if the message is the /cancel command
+        if update.message.text and update.message.text.lower() == '/cancel':
+            return await self.cancel(update, context)
         
         try:
+            user_info = f"👤 User: {user.first_name or ''} {user.last_name or ''}".strip()
+            if user.username:
+                user_info += f" (@{user.username})"
+            user_info += f"\n🆔 User ID: {telegram_id}"
+            
             if update.message.photo:
                 photo = update.message.photo[-1]
                 file = await photo.get_file()
@@ -817,18 +824,20 @@ class CVBot:
                     await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
                     return COLLECT_PROFILE_IMAGE
                 file_url = file.file_path
-                user = update.effective_user
-                user_info = f"👤 User: {user.first_name or ''} {user.last_name or ''}".strip()
-                if user.username:
-                    user_info += f" (@{user.username})"
-                user_info += f"\n🆔 User ID: {telegram_id}"
                 await context.bot.send_photo(
                     chat_id=private_channel_id,
                     photo=photo.file_id,
                     caption=f"📸 Profile Image Received\n\n{user_info}"
                 )
                 session['candidate_data']['profileImageUrl'] = file_url
+                await update.message.reply_text(
+                    self.get_prompt(session, 'profile_image_success'),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                    ])
+                )
                 logger.info(f"Profile image uploaded for user {telegram_id}")
+                return COLLECT_PROFILE_IMAGE
             elif update.message.document:
                 document = update.message.document
                 if document.file_size > max_size:
@@ -844,36 +853,39 @@ class CVBot:
                         return COLLECT_PROFILE_IMAGE
                 file = await document.get_file()
                 file_url = file.file_path
-                user = update.effective_user
-                user_info = f"👤 User: {user.first_name or ''} {user.last_name or ''}".strip()
-                if user.username:
-                    user_info += f" (@{user.username})"
-                user_info += f"\n🆔 User ID: {telegram_id}"
                 await context.bot.send_document(
                     chat_id=private_channel_id,
                     document=document.file_id,
                     caption=f"📸 Profile Image Received\n\n{user_info}"
                 )
                 session['candidate_data']['profileImageUrl'] = file_url
-                logger.info(f"Profile image (document) uploaded for user {telegram_id}")
+                await update.message.reply_text(
+                    self.get_prompt(session, 'profile_image_success'),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                    ])
+                )
+                logger.info(f"Profile image document uploaded for user {telegram_id}")
+                return COLLECT_PROFILE_IMAGE
+            elif update.message.text and update.message.text.lower() == 'skip':
+                await update.message.reply_text(
+                    self.get_prompt(session, 'profile_image_skip'),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
+                    ])
+                )
+                logger.info(f"Profile image skipped by user {telegram_id}")
+                return COLLECT_PROFILE_IMAGE
             else:
                 await update.message.reply_text(self.get_prompt(session, 'invalid_file_type'))
                 return COLLECT_PROFILE_IMAGE
-            
-            await update.message.reply_text(
-                self.get_prompt(session, 'profile_image_success'),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(self.get_prompt(session, 'continue_professional'), callback_data="continue_professional")]
-                ])
-            )
-            return COLLECT_PROFILE_IMAGE
         except Exception as e:
-            logger.error(f"Error handling profile image upload: {str(e)}")
+            logger.error(f"Error in collect_profile_image: {str(e)}")
             await update.message.reply_text(self.get_prompt(session, 'error_message'))
             return COLLECT_PROFILE_IMAGE
 
     async def handle_profile_image_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle profile image choice (skip or continue)"""
+        """Handle the user's choice to continue to professional info"""
         query = update.callback_query
         await query.answer()
         
@@ -1751,14 +1763,34 @@ class CVBot:
         logger.debug(f"Ignoring non-reply message in private channel: {update.message.text if update.message.text else 'No text'}")
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Cancel the current conversation"""
+        """Cancel the current conversation and reset all session data"""
         telegram_id = str(update.effective_user.id)
         session = self.get_user_session(telegram_id)
         
-        if telegram_id in self.user_sessions:
-            del self.user_sessions[telegram_id]
+        # Reset the entire session to initial state, preserving only language and chat_id
+        self.user_sessions[telegram_id] = {
+            'language': session.get('language', 'en'),
+            'chat_id': session.get('chat_id', update.effective_chat.id),
+            'candidate_data': {'availability': 'To be specified'},
+            'careerObjectives': [],
+            'skills': [],
+            'education': [],
+            'languages': [],
+            'workExperiences': [],
+            'certificationsAwards': [],
+            'otherActivities': [],
+            'projects': [],
+            'current_field': None,
+            'current_work_experience': {},
+            'current_education': {},
+            'current_skill': {},
+            'current_certification': {},
+            'current_project': {},
+            'current_language': {}
+        }
         
-        await update.message.reply_text(self.get_prompt(session, 'cancel_message'))
+        await update.message.reply_text(self.get_prompt(self.user_sessions[telegram_id], 'cancel_message'))
+        logger.info(f"Session reset for user {telegram_id} due to /cancel command")
         return ConversationHandler.END
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
