@@ -74,7 +74,7 @@ PROMPTS = {
         'payment_instructions': "Please make a payment of 100 Birr to:\n\nBank: Commercial Bank of Ethiopia\nAccount: 1000649561382\nName: Jemal Hussen Hassen\n\nAfter payment, please upload a screenshot of the payment confirmation.",
         'payment_confirmation': "Thank you! Your payment is being processed. We will notify you once it's verified. Please come back later.",
         'cancel_message': "Operation cancelled. Type /start to begin again.",
-        'help_message': "Use /start to create or update your CV profile.\nUse /cancel to stop the current operation.",
+        'help_message': "Use /start to create or update your CV profile.\nUse /cancel to stop the current operation.\nChat : @atomimore\nCall : +251946199953",
         'error_message': "An error occurred. Please try again or contact support.",
         'profile_image_prompt': "Please upload your profile image as a photo or file (JPG, JPEG, PNG, PDF only, max 5 MB). Type 'skip' to proceed without an image. Note: DOC, DOCX, and similar formats are not supported.",
         'profile_image_success': "Profile image uploaded successfully. Proceed to professional information?",

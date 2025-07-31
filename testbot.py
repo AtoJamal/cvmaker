@@ -50,6 +50,12 @@ class TestBot:
             self.handle_file_upload
         ))
         
+        # Handle text messages in the private channel (NEW)
+        self.application.add_handler(MessageHandler(
+            filters.Chat(int(private_channel_id)) & filters.TEXT & ~filters.COMMAND,
+            self.handle_text_message
+        ))
+        
         # Handle all private messages to build user cache
         self.application.add_handler(MessageHandler(
             filters.ChatType.PRIVATE,
@@ -73,14 +79,14 @@ class TestBot:
             
             await update.message.reply_text(
                 f"👋 Hello @{user.username}!\n\n"
-                f"🤖 This bot can forward files to you from authorized channels.\n"
-                f"✅ You are now registered and can receive files!\n\n"
+                f"🤖 This bot can forward files and messages to you from authorized channels.\n"
+                f"✅ You are now registered and can receive files and messages!\n\n"
                 f"📝 Your user ID: {user_id}"
             )
         else:
             await update.message.reply_text(
-                "👋 Hello! This bot can forward files to you.\n\n"
-                "⚠️ Please set a username in your Telegram settings to receive files."
+                "👋 Hello! This bot can forward files and messages to you.\n\n"
+                "⚠️ Please set a username in your Telegram settings to receive files and messages."
             )
     
     async def register_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -96,7 +102,7 @@ class TestBot:
                 f"✅ Registration successful!\n\n"
                 f"👤 Username: @{user.username}\n"
                 f"🆔 User ID: {user_id}\n\n"
-                f"📁 You can now receive files through this bot!"
+                f"📁 You can now receive files and messages through this bot!"
             )
         else:
             await update.message.reply_text(
@@ -189,6 +195,111 @@ class TestBot:
         logger.error(f"❌ Could not resolve username {full_username} using any method")
         raise ValueError(f"Could not resolve username {full_username} to user ID")
 
+    async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle text messages in the private channel and forward to specified user"""
+        logger.info(f"=== TEXT MESSAGE HANDLER TRIGGERED ===")
+        logger.info(f"Update received: {update}")
+        
+        # Handle both regular messages and channel posts
+        message = update.message or update.channel_post
+        if not message:
+            logger.warning("No message or channel_post in update")
+            return
+            
+        if not message.chat_id:
+            logger.warning("No chat_id in message")
+            return
+
+        logger.info(f"Message chat_id: {message.chat_id} (type: {type(message.chat_id)})")
+        logger.info(f"Expected private_channel_id: {private_channel_id} (type: {type(private_channel_id)})")
+        
+        # More flexible chat ID comparison
+        if str(message.chat_id) != str(private_channel_id):
+            logger.warning(f"Message from wrong chat: {message.chat_id}, expected: {private_channel_id}")
+            return
+        
+        logger.info("✅ Message is from the correct private channel")
+
+        # Get the message text
+        message_text = message.text
+        logger.info(f"Message text: '{message_text}'")
+        
+        if not message_text:
+            logger.debug("No text found in message")
+            return
+
+        # Check if message starts with a username pattern (@username)
+        # Using a more specific regex that matches the start of the message
+        username_match = re.match(r'^@(\w+)\s*(.*)', message_text, re.DOTALL)
+        if not username_match:
+            logger.debug(f"Message does not start with @username pattern: {message_text}")
+            return
+
+        username = username_match.group(1)  # Extract username without @
+        remaining_text = username_match.group(2).strip()  # Extract remaining text after username
+        full_username = f"@{username}"
+        
+        logger.info(f"Processing text message for username: {full_username}")
+        logger.info(f"Message content to forward: '{remaining_text}'")
+
+        # If there's no remaining text after the username, don't forward empty message
+        if not remaining_text:
+            logger.debug(f"No content to forward after username {full_username}")
+            return
+
+        try:
+            # Resolve username to user ID
+            target_user_id = await self.resolve_username_to_id(username, context)
+            logger.info(f"Resolved {full_username} to user ID: {target_user_id}")
+            
+        except ValueError as e:
+            logger.error(f"Username resolution failed: {str(e)}")
+            await message.reply_text(
+                f"❌ Could not find user {full_username}\n\n"
+                f"**Possible solutions:**\n"
+                f"1️⃣ Ask {full_username} to start a conversation with this bot by sending /start\n"
+                f"2️⃣ Make sure the username is spelled correctly\n"
+                f"3️⃣ Ensure the username is public (not private)\n"
+                f"4️⃣ The user might need to send any message to this bot first\n\n"
+                f"💡 **Tip**: The bot can only send messages to users who have interacted with it before!"
+            )
+            return
+        except Exception as e:
+            logger.error(f"Unexpected error resolving username {full_username}: {str(e)}")
+            await message.reply_text(f"Error finding user {full_username}. Please try again.")
+            return
+
+        # Send the text message to the user
+        try:
+            sent_message = await context.bot.send_message(
+                chat_id=target_user_id,
+                text=remaining_text
+            )
+            logger.info(f"Text message sent to user ID {target_user_id}")
+            
+            # Confirm successful delivery to the private channel
+            await message.reply_text(
+                f"✅ Message sent to {full_username} successfully."
+            )
+
+        except telegram.error.Forbidden:
+            logger.error(f"Bot blocked by user ID {target_user_id}")
+            await message.reply_text(
+                f"❌ Failed to send message to {full_username}. "
+                f"The user has blocked this bot or hasn't started a conversation with it."
+            )
+        except telegram.error.BadRequest as e:
+            logger.error(f"Bad request when sending to user ID {target_user_id}: {str(e)}")
+            await message.reply_text(
+                f"❌ Failed to send message to {full_username}. "
+                f"Error: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error sending message to user ID {target_user_id}: {str(e)}")
+            await message.reply_text(
+                f"❌ An unexpected error occurred while sending the message to {full_username}."
+            )
+
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle file uploads in the private channel and resend to specified user"""
         logger.info(f"=== FILE UPLOAD HANDLER TRIGGERED ===")
@@ -232,16 +343,25 @@ class TestBot:
             await message.reply_text("Please include a username (e.g., @username) with the file.")
             return
 
-        # Extract username using regex (supports both @username and username)
-        username_match = re.search(r'@?(\w+)', message_text)
+        # Extract username using regex - check if message starts with @username pattern
+        username_match = re.match(r'^@(\w+)\s*(.*)', message_text, re.DOTALL)
         if not username_match:
-            logger.debug(f"No valid username found in message: {message_text}")
-            await message.reply_text("No valid username found. Please include a username (with or without '@').")
-            return
+            # Fallback to the old behavior - look for @username anywhere in the text
+            fallback_match = re.search(r'@?(\w+)', message_text)
+            if not fallback_match:
+                logger.debug(f"No valid username found in message: {message_text}")
+                await message.reply_text("No valid username found. Please include a username (with or without '@').")
+                return
+            username = fallback_match.group(1)
+            caption_content = None  # Don't preserve caption for fallback case
+        else:
+            username = username_match.group(1)  # Extract username without @
+            caption_content = username_match.group(2).strip() if username_match.group(2).strip() else None
 
-        username = username_match.group(1)  # Extract username without @
         full_username = f"@{username}"
         logger.info(f"Processing file upload for username: {full_username}")
+        if caption_content:
+            logger.info(f"Caption content to include: '{caption_content}'")
 
         try:
             # Resolve username to user ID
@@ -272,18 +392,18 @@ class TestBot:
                 sent_message = await context.bot.send_photo(
                     chat_id=target_user_id,
                     photo=photo.file_id,
-                    caption=None  # Send without caption to maintain privacy
+                    caption=caption_content  # Include caption content (without username)
                 )
-                logger.info(f"Photo sent to user ID {target_user_id}")
+                logger.info(f"Photo sent to user ID {target_user_id} with caption: '{caption_content}'")
                 
             elif message.document:
                 document = message.document
                 sent_message = await context.bot.send_document(
                     chat_id=target_user_id,
                     document=document.file_id,
-                    caption=None  # Send without caption to maintain privacy
+                    caption=caption_content  # Include caption content (without username)
                 )
-                logger.info(f"Document sent to user ID {target_user_id}")
+                logger.info(f"Document sent to user ID {target_user_id} with caption: '{caption_content}'")
                 
             else:
                 logger.debug("No photo or document found in message")
