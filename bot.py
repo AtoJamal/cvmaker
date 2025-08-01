@@ -126,7 +126,7 @@ PROMPTS = {
         'payment_instructions': "Please make a payment of 100 Birr to:\n\nBank: Commercial Bank of Ethiopia\nAccount: 1000649561382\nName: Jemal Hussen Hassen\n\nAfter payment, please upload a screenshot of the payment confirmation.",
         'payment_confirmation': "Thank you! Your payment is being processed. We will notify you once it's verified. Please come back later.",
         'cancel_message': "Operation cancelled. Type /start to begin again.",
-        'help_message': "Use /start to create or update your CV profile.\nUse /cancel to stop the current operation.",
+        'help_message': "Use /start to create or update your CV profile.\nUse /cancel to stop the current operation.\nChat : @atomimore\nCall : +251946199953",
         'error_message': "An error occurred. Please try again or contact support.",
         'profile_image_prompt': "Please upload your profile image as a photo or file (JPG, JPEG, PNG, PDF only, max 5 MB). Type 'skip' to proceed without an image. Note: DOC, DOCX, and similar formats are not supported.",
         'profile_image_success': "Profile image uploaded successfully. Proceed to professional information?",
@@ -136,8 +136,8 @@ PROMPTS = {
         'continue_professional': "Continue to Professional Info",
         'payment_instructions': "Please make a payment of 100 Birr to:\n\nBank: Commercial Bank of Ethiopia\nAccount: 1000649561382\nName: Jemal Hussen Hassen\n\nAfter payment, please upload a screenshot of the payment confirmation (JPG, JPEG, PNG, PDF only, max 5 MB). Note: DOC, DOCX, and similar formats are not supported.",
         'payment_screenshot_success': "Payment screenshot uploaded successfully. Awaiting verification.",
-        'payment_verified': "Your payment has been verified! Your CV is being processed.",
-        'payment_rejected': "Your payment was rejected: {reason}. Please start a new order with /start.",
+        'payment_verified': "✅ Your payment has been verified! Your CV is being processed.",
+        'payment_rejected': "❌ Your payment was rejected: {reason}. Please start a new order with /start.",
         'payment_approved': "Your payment has been approved! Your CV is being processed and will be delivered soon.",
         'reject_reason_prompt': "Please provide the reason for rejecting the payment.",
         'editing_started':"editing started",
@@ -229,8 +229,8 @@ PROMPTS = {
         'continue_professional': "ወደ ሙያዊ መረጃ ቀጥል",
         'payment_instructions': "እባክዎ 100 ብር ይክፈሉ፡\n\nባንክ፡ የኢትዮጵያ ንግድ ባንክ\nመለያ፡ 1000649561382\nስም፡ Jemal Hussen Hassen\n\nክፍያ ከፈጸሙ በኋላ፣ እባክዎ የክፍያ ማረጋገጫ ፎቶ (JPG, JPEG, PNG, PDF ብቻ፣ ከፍተኛ 5 ሜባ) ይስቀሉ። ማሳሰቢያ፡ DOC, DOCX እና ተመሳሳይ ቅርጸቶች አይደገፉም።",
         'payment_screenshot_success': "የክፍያ ማረጋገጫ ፎቶ በተሳካ ሁኔታ ተሰቅሏል። ማረጋገጫ በመጠበቅ ላይ።",
-        'payment_verified': "ክፍያዎ ተረጋግጧል! ሲቪዎ በመዘጋጀት ላይ ነው።",
-        'payment_rejected': "ክፍያዎ ተቀባይነት አላገኘም፡ {reason}። እባክዎ ከ/start ጋር አዲስ ትዕዛዝ ይጀምሩ።",
+        'payment_verified': "✅ ክፍያዎ ተረጋግጧል! ሲቪዎ በመዘጋጀት ላይ ነው።",
+        'payment_rejected': "❌ ክፍያዎ ተቀባይነት አላገኘም፡ {reason}። እባክዎ ከ/start ጋር አዲስ ትዕዛዝ ይጀምሩ።",
         'payment_approved': "ክፍያዎ ተፈቅዷል! ሲቪዎ በመዘጋጀት ላይ ነው እና በቅርቡ ይደርሰዎታል።",
         'reject_reason_prompt': "እባክዎ ክፍያውን ለመከልከል ምክንያቱን ያቅርቡ።",
     }
@@ -304,21 +304,24 @@ class CVBot:
         self.user_sessions: Dict[str, Dict] = {}  # Dictionary to store user-specific data
         self.user_cache: Dict[str, int] = {}  # Cache for username to user_id mapping
 
-
-
-        logger.info("🔄 Initializing CVBot instance")
-        logger.info("🔄 Building Application instance")
-        logger.info("🔄 Setting up handlers")
-        self.setup_handlers()
-        logger.info("✅ CVBot initialized successfully")
-        
         # Initialize TestBot and register its handlers
         logger.info("🔄 Initializing TestBot")
         self.test_bot = TestBot()
         logger.info("🔄 Registering TestBot handlers")
         self.test_bot.register_handlers(self.application)
 
- 
+        logger.info("🔄 Initializing CVBot instance")
+        logger.info("🔄 Building Application instance")
+        logger.info("🔄 Setting up handlers")
+        self.setup_handlers()
+        logger.info("✅ CVBot initialized successfully")
+
+
+
+
+
+        
+
 
     async def post_init(self, application: Application) -> None:
         """Called after application initialization to start background tasks"""
@@ -1517,7 +1520,6 @@ class CVBot:
             order.update_status("pending_verification", status_details="Payment screenshot submitted, awaiting admin verification")
             order.save()
             
-            await update.message.reply_text(self.get_prompt(session, 'payment_screenshot_success'))
             await update.message.reply_text(self.get_prompt(session, 'payment_confirmation'))
             
             return ConversationHandler.END

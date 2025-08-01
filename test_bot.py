@@ -51,7 +51,7 @@ class TestBot:
             raise ValueError(error_msg)
         
         application.add_handler(MessageHandler(filters.ALL, self.debug_all_messages), group=-1)
-        application.add_handler(CommandHandler("teststart", self.start_command), group=0)
+        application.add_handler(CommandHandler("start", self.start_command), group=0)
         application.add_handler(CommandHandler("register", self.register_command), group=0)
 
         # Register handlers
