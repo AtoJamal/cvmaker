@@ -33,13 +33,18 @@ class BaseFirestoreModel:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):
-        """Create model instance from Firestore document data"""
-        # Convert string dates back to datetime objects
-        date_fields = ['created_at', 'updated_at']
-        for field in date_fields:
-            if field in data and isinstance(data[field], str):
-                data[field] = datetime.fromisoformat(data[field])
-        return cls(**data)
+        """Create Order instance from dictionary"""
+        return cls(
+            id=data.get('id'),
+            candidateId=data.get('candidateId'),
+            telegramUserId=data.get('telegramUserId'),
+            status=data.get('status', 'awaiting_payment'),
+            paymentScreenshotUrl=data.get('paymentScreenshotUrl'),
+            paymentVerified=data.get('paymentVerified', False),
+            statusDetails=data.get('statusDetails'),
+            createdAt=data.get('createdAt'),
+            updatedAt=data.get('updatedAt')
+        )
     
     def validate_required_fields(self, required_fields: list):
         """Validate that required fields are present"""

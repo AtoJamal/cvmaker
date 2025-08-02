@@ -199,7 +199,22 @@ class CVBot:
             per_message=False
         )
         
+        payment_retry_handler = ConversationHandler(
+        entry_points=[CommandHandler("payment", self.handle_payment_command)],  # Fixed method name
+        states={
+            PAYMENT: [
+                MessageHandler(
+                    filters.PHOTO | filters.Document.IMAGE | filters.Document.MimeType("application/pdf"),
+                    self.handle_payment_screenshot
+                )
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", self.cancel)],
+        per_message=False
+    )
+        
         self.application.add_handler(conv_handler)
+        self.application.add_handler(payment_retry_handler)
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_admin_response, pattern="^(approve_|reject_)"))
         self.application.add_handler(MessageHandler(filters.Chat(int(private_channel_id)) & filters.REPLY, self.handle_admin_reply))
@@ -605,7 +620,7 @@ class CVBot:
         if query.data == "continue_professional":
             session['current_field'] = 'work_jobTitle'
             session['current_work_experience'] = {}
-            await query.edit_message_text(self.get_prompt(session, 'job_title'))
+            await query.edit_message_text(self.get_prompt(session, 'job_title_with_skip'))
             return COLLECT_PROFESSIONAL_INFO
 
     async def collect_professional_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -617,6 +632,14 @@ class CVBot:
         current_field = session['current_field']
         
         if current_field == 'work_jobTitle':
+            if update.message.text.lower() == 'skip':
+                session['workExperiences'] = []  # Set empty work experiences
+                session['current_field'] = 'edu_degreeName'
+                session['current_education'] = {}
+                await update.message.reply_text(self.get_prompt(session, 'degree_name'))
+                return COLLECT_EDUCATION
+            
+            # Normal flow continues
             session['current_work_experience']['jobTitle'] = update.message.text
             session['current_field'] = 'work_companyName'
             await update.message.reply_text(self.get_prompt(session, 'company_name'))
@@ -718,10 +741,9 @@ class CVBot:
             await query.edit_message_text(self.get_prompt(session, 'degree_name'))
             return COLLECT_EDUCATION
         elif query.data == 'continue_skills':
-            session['current_field'] = 'skill_skillName'
-            session['current_skill'] = {}
-            await query.edit_message_text(self.get_prompt(session, 'skill_name'))
-            return COLLECT_SKILLS
+            session['skills'] = []  # Set empty skills list
+            await query.edit_message_text(self.get_prompt(session, 'career_summary'))
+            return COLLECT_CAREER_OBJECTIVE
 
     async def collect_skills(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Collect skills from candidate"""
@@ -963,9 +985,10 @@ class CVBot:
             summary += f"  {self.get_prompt(session, 'summary_edu_description')}: {edu.get('description', 'N/A')}\n"
             summary += f"  {self.get_prompt(session, 'summary_achievements')}: {edu.get('achievementsHonors', 'None')}\n"
         
-        summary += f"\n{self.get_prompt(session, 'summary_skills')}:\n"
-        for skill in session['skills']:
-            summary += f"- {skill.get('skillName', 'N/A')} ({self.get_prompt(session, 'summary_proficiency')}: {skill.get('proficiency', 'N/A')})\n"
+        if session['skills']:
+            summary += f"\n{self.get_prompt(session, 'summary_skills')}:\n"
+            for skill in session['skills']:
+                summary += f"- {skill.get('skillName', 'N/A')} ({self.get_prompt(session, 'summary_proficiency')}: {skill.get('proficiency', 'N/A')})\n"
         
         summary += f"\n{self.get_prompt(session, 'summary_certifications')}:\n"
         for cert in session['certificationsAwards']:
@@ -1120,6 +1143,9 @@ class CVBot:
                 logger.info(f"Deleted saving message for user {telegram_id}")
             except Exception as e:
                 logger.error(f"Error deleting saving message for user {telegram_id}: {str(e)}")
+
+            # In confirm_order method when transitioning to PAYMENT
+            session['from_main_flow'] = True
             
             # Send payment instructions
             await context.bot.send_message(
@@ -1263,7 +1289,14 @@ class CVBot:
                 user_info += f" (@{user.username})"
             user_info += f"\n🆔 User ID: {telegram_id}"
             user_info += f"\n📋 Order ID: {session.get('order_id', 'N/A')}"
-            user_info += f"\n📞 Phone: {session['candidate_data'].get('phoneNumber', 'N/A')}"
+            
+            # Load candidate data for phone number if not in session
+            if 'candidate_data' not in session or not session['candidate_data'].get('phoneNumber'):
+                candidate = Candidate.get_by_telegram_user_id(telegram_id)
+                if candidate:
+                    session['candidate_data'] = candidate.to_dict()
+            
+            user_info += f"\n📞 Phone: {session.get('candidate_data', {}).get('phoneNumber', 'N/A')}"
             
             keyboard = [
                 [
@@ -1280,13 +1313,18 @@ class CVBot:
                     await update.message.reply_text(self.get_prompt(session, 'file_too_large'))
                     return PAYMENT
                 file_url = file.file_path
+                
+                # Check if this is a retry (not from main flow)
+                retry_text = " (RETRY)" if session.get('order_id') and not session.get('from_main_flow', False) else ""
+                
                 await context.bot.send_photo(
                     chat_id=private_channel_id,
                     photo=photo.file_id,
-                    caption=f"💳 Payment Screenshot Received\n\n{user_info}",
+                    caption=f"💳 Payment Screenshot Received{retry_text}\n\n{user_info}",
                     reply_markup=reply_markup
                 )
                 logger.info(f"Payment screenshot forwarded to private channel for user {telegram_id}, order {session['order_id']}")
+                
             elif update.message.document:
                 document = update.message.document
                 if document.file_size > max_size:
@@ -1302,10 +1340,14 @@ class CVBot:
                         return PAYMENT
                 file = await document.get_file()
                 file_url = file.file_path
+                
+                # Check if this is a retry (not from main flow)
+                retry_text = " (RETRY)" if session.get('order_id') and not session.get('from_main_flow', False) else ""
+                
                 await context.bot.send_document(
                     chat_id=private_channel_id,
                     document=document.file_id,
-                    caption=f"💳 Payment Document Received\n\n{user_info}",
+                    caption=f"💳 Payment Document Received{retry_text}\n\n{user_info}",
                     reply_markup=reply_markup
                 )
                 logger.info(f"Payment document forwarded to private channel for user {telegram_id}, order {session['order_id']}")
@@ -1319,6 +1361,7 @@ class CVBot:
                 await update.message.reply_text(self.get_prompt(session, 'error_message'))
                 return PAYMENT
             
+            # Update order with new payment screenshot
             order.paymentScreenshotUrl = file_url
             order.update_status("pending_verification", status_details="Payment screenshot submitted, awaiting admin verification")
             order.save()
@@ -1326,6 +1369,7 @@ class CVBot:
             await update.message.reply_text(self.get_prompt(session, 'payment_confirmation'))
             
             return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in handle_payment_screenshot: {str(e)}")
             await update.message.reply_text(self.get_prompt(session, 'error_message'))
@@ -1399,6 +1443,138 @@ class CVBot:
         except Exception as e:
             logger.error(f"Error handling admin response: {str(e)}")
             await query.message.reply_text("An error occurred while processing your response.")
+
+    async def payment_retry_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /payment command for retrying rejected payments"""
+        user = update.effective_user
+        telegram_id = str(user.id)
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = update.effective_chat.id
+        
+        # Check if user has a rejected order
+        rejected_order = self.get_rejected_order_for_user(telegram_id)
+        
+        if not rejected_order:
+            await update.message.reply_text(
+                self.get_prompt(session, 'no_rejected_payment')
+            )
+            return ConversationHandler.END
+        
+        # Set up session for payment retry
+        session['order_id'] = rejected_order.id
+        session['notified'] = False  # Reset notification flag
+        session['from_main_flow'] = False  # Mark this as a retry, not from main flow
+        
+        # Send payment retry instructions
+        await update.message.reply_text(
+            self.get_prompt(session, 'payment_retry_instructions'),
+            parse_mode="HTML"
+        )
+        
+        return PAYMENT
+
+    async def handle_payment_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /payment command for retrying rejected payments"""
+        logger.info(f"🔄 /payment command received from user {update.effective_user.id}")
+        user = update.effective_user
+        telegram_id = str(user.id)
+        
+        logger.info(f"🔄 /payment command triggered by user {telegram_id}")
+        
+        # Get or create session
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = update.effective_chat.id
+        
+        logger.info(f"📋 Session retrieved for user {telegram_id}, checking for rejected orders...")
+        
+        # Check if user has a rejected order
+        rejected_order = self.get_rejected_order_for_user(telegram_id)
+        
+        if not rejected_order:
+            logger.info(f"❌ No rejected order found for user {telegram_id}")
+            await update.message.reply_text(
+                self.get_prompt(session, 'no_rejected_payment')
+            )
+            return ConversationHandler.END
+        
+        logger.info(f"✅ Found rejected order {rejected_order.id} for user {telegram_id}")
+        
+        # Load candidate data for this user if not in session
+        try:
+            candidate = Candidate.get_by_telegram_user_id(telegram_id)
+            if candidate:
+                session['candidate_data'] = candidate.to_dict()
+                logger.info(f"📊 Loaded candidate data for user {telegram_id}")
+            else:
+                logger.warning(f"⚠️ No candidate found for telegram_id {telegram_id}")
+        except Exception as e:
+            logger.error(f"❌ Error loading candidate data for user {telegram_id}: {str(e)}")
+        
+        # Set up session for payment retry
+        session['order_id'] = rejected_order.id
+        session['notified'] = False  # Reset notification flag
+        session['from_main_flow'] = False  # Mark this as a retry, not from main flow
+        
+        logger.info(f"🔄 Set up payment retry session for user {telegram_id}, order {rejected_order.id}")
+        
+        # Send payment retry instructions
+        await update.message.reply_text(
+            self.get_prompt(session, 'payment_retry_instructions'),
+            parse_mode="HTML"
+        )
+        
+        logger.info(f"📤 Sent payment retry instructions to user {telegram_id}")
+        
+        return PAYMENT
+
+    # Improved get_rejected_order_for_user method with better error handling:
+
+    def get_rejected_order_for_user(self, telegram_id: str):
+        """Get the most recent rejected order for a user"""
+        try:
+            logger.info(f"🔍 Searching for rejected orders for user {telegram_id}")
+            
+            # Query Firebase for rejected orders for this user
+            orders_ref = db.collection('orders')
+            query = orders_ref.where('telegramUserId', '==', telegram_id).where('status', '==', 'rejected')
+            
+            # Get all rejected orders and sort them by created_at in Python
+            orders = list(query.stream())
+            logger.info(f"📊 Found {len(orders)} total rejected orders for user {telegram_id}")
+            
+            if not orders:
+                logger.info(f"❌ No rejected orders found for user {telegram_id}")
+                return None
+            
+            # Sort by createdAt or updated_at (fallback to document creation time)
+            def get_order_time(order_doc):
+                data = order_doc.to_dict()
+                created_at = data.get('createdAt') or data.get('created_at')
+                if isinstance(created_at, str):
+                    try:
+                        return datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except:
+                        pass
+                elif hasattr(created_at, 'timestamp'):  # Firestore timestamp
+                    return created_at
+                return order_doc.create_time  # Fallback to document creation time
+            
+            # Sort orders by time (most recent first)
+            orders.sort(key=get_order_time, reverse=True)
+            
+            # Get the most recent order
+            most_recent_order_doc = orders[0]
+            order_data = most_recent_order_doc.to_dict()
+            order_data['id'] = most_recent_order_doc.id
+            
+            logger.info(f"✅ Found most recent rejected order {order_data['id']} for user {telegram_id}")
+            
+            # Create Order instance from the data
+            return Order(**order_data)
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching rejected order for user {telegram_id}: {str(e)}")
+            return None
 
     async def handle_admin_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle admin replies in the private channel to approve or reject payments"""
