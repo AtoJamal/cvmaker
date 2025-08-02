@@ -37,8 +37,7 @@ import django
 from typing import Dict, List
 import asyncio
 import telegram
-# Import TestBot from test_bot.py
-from test_bot import TestBot
+from translations import PROMPTS
 
 
 # Ensure Python version is 3.6 or higher
@@ -49,192 +48,6 @@ if sys.version_info < (3, 6):
 # Set up Django environment
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cvbot_backend.settings')
 django.setup()
-
-PROMPTS = {
-    'en': {
-        'welcome_new': "Welcome to the CV Bot! Let's create your professional CV.\n\nPlease enter your first name:",
-        'welcome_back': "Welcome back! You already have a profile. Would you like to update your information or create a new CV?",
-        'select_language': "Please select your preferred language:\nእባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡",
-        'update_profile': "Update Profile",
-        'new_cv': "Create New CV",
-        'edit_section': "Which section would you like to update?",
-        'personal_info': "Personal Info",
-        'contact_info': "Contact Info",
-        'work_experience': "Work Experience",
-        'education': "Education",
-        'skills': "Skills",
-        'careear_objective': "Career Objective",
-        'certifications': "Certifications",
-        'projects': "Projects",
-        'languages': "Languages",
-        'other_activities': "Other Activities",
-        'first_name': "Please enter your first name:",
-        'middle_name': "Great! Now please enter your middle name (if any):",
-        'last_name': "Now please enter your last name:",
-        'phone_number': "Now let's collect your contact information.\nPlease enter your phone number (e.g., +251911223344):",
-        'email_address': "Please enter your email address:",
-        'linkedin_profile': "Please enter your LinkedIn profile URL (if any, or type 'skip'):",
-        'city': "What city do you currently live in?",
-        'country': "Please enter your country:",
-        'job_title': "Let's capture your professional experience. What was the job title of your most recent role?(e.g., Software Engineer) If you're a recent graduate or have limited work history, please provide the job title for your most relevant internship(e.g., Networking Intern):",
-        'company_name': "Please enter the company name for this job position. If it was an internship, you can also list the university or institution where it took place (e.g.,Microsoft, Ethio Telecom, University of Gondar ).",
-        'work_location': "Where was this job or internship located? (e.g., 'Addis Ababa, Ethiopia', 'Remote', 'Nairobi, Kenya', 'New York, USA')",
-        'work_description': "Now, let's detail your responsibilities and the timeframe for this job position or internship. Briefly explain what you did, your key accomplishments, and the start and end dates \n\n(e.g., 'Conducted lab experiments, prepared reports for senior scientists (Sept 2020 - May 2021)'",
-        'add_another_work': "Work experience added. Would you like to add another position?\nPlease select an option below:",
-        'add_another': "Add Another",
-        'continue': "Continue",
-        'degree_name': "What's your degree name? (e.g., 'Bachelor of Science in Computer Science', 'Master of Business Administration', 'PhD in Biology')",
-        'institution_name': "Please provide the name of the university or institution where you obtained this degree(e.g,  'Mekelle University').",
-        'gpa': "What was your GPA for this degree? (e.g., '3.5/4.0', '4.0/5.0', or type 'skip' if you prefer not to include it)",
-        'edu_description': "Please tell us the start and end dates for this degree(e.g., 'Sept 2018 - June 2022', '2016 - 2019', 'Aug 2020 - Present').",
-        'achievements_honors': "Please list any achievements or honors (e.g., 'Dean's List', or type 'skip' if none):",
-        'add_another_edu': "Degree added. Would you like to add another degree entry?\nPlease select an option below:",
-        'skill_name': "What's a key skill you gained from your degree? This could be a technical skill, a research method (e.g., 'Graphic Design' , 'Data Analysis')",
-        'skill_proficiency': "Please enter your proficiency level for this skill (e.g., 'Beginner', 'Intermediate', 'Advanced'):",
-        'add_another_skill': "Skill added. Would you like to add another skill?\nPlease select an option below:",
-        'career_summary': "Please tell us the name of your high school and its location. Include the city and country (e.g., \n'Menelik II Secondary School, Addis Ababa, Ethiopia'.",
-        'certificate_name': "Have you earned any certifications or awards? Please list one here. This could be a professional certification, an academic award, or a recognition for a specific skill.(e.g.,  'AWS Certified Developer'):",
-        'issuer': "Please tell us the name of the organization or institution that issued this certification (e.g., \n'Amazon Web Services').",
-        'add_another_cert': "Certification added. Would you like to add another certification?\nPlease select an option below:",
-        'project_title': "Tell us about a key research, project, or final year university project you completed. What was its title?(e.g.,  'Study on Renewable Energy Integration in Rural Areas')",
-        'project_description': "Now, give us a detailed description of your research, project, or final year project/research. Focus on your contributions, methodologies used, outcomes, and the start and end dates(e.g., \nDeveloped a web application using Python and Django, managing database integration and user authentication (Sept 2022 - April 2023)'",
-        'project_link': "Please provide a link to the project/research (e.g., GitHub repository, live demo, google drive, or type 'skip' if none):",
-        'add_another_project': "Project added. Would you like to add another project?\nPlease select an option below:",
-        'language_name': "Please enter a language you speak, one at a time (e.g., 'Amharic','English'):",
-        'language_proficiency': "Please enter your proficiency level for this language (e.g., 'Fluent', 'Native', 'Intermediate'):",
-        'add_another_language': "Language added. Would you like to add another language?\nPlease select an option below:",
-        'activities': "Please describe any other activities (volunteering, hobbies, etc.):",
-        'summary_header': "Here's a summary of your information:\n\n",
-        'summary_name': "Name",
-        'summary_contact': "Contact",
-        'summary_location': "Location",
-        'summary_availability': "Availability",
-        'summary_work': "Work Experience",
-        'summary_responsibilities': "Responsibilities",
-        'summary_education': "Education",
-        'summary_gpa': "GPA",
-        'summary_edu_description': "Description",
-        'summary_achievements': "Achievements/Honors",
-        'summary_skills': "Skills",
-        'summary_proficiency': "Proficiency",
-        'summary_certifications': "Certifications/Awards",
-        'summary_projects': "Projects",
-        'summary_project_link': "Link",
-        'summary_languages': "Languages",
-        'confirm': "✅ Confirm",
-        'edit': "✏️ Edit",
-        'payment_instructions': "Please make a payment of 100 Birr to:\n\nBank: Commercial Bank of Ethiopia\nAccount: 1000649561382\nName: Jemal Hussen Hassen\n\nAfter payment, please upload a screenshot of the payment confirmation.",
-        'payment_confirmation': "Thank you! Your payment is being processed. We will notify you once it's verified. Please come back later.",
-        'cancel_message': "Operation cancelled. Type /start to begin again.",
-        'help_message': "Use /start to create or update your CV profile.\nUse /cancel to stop the current operation.\nChat : @atomimore\nCall : +251946199953",
-        'error_message': "An error occurred. Please try again or contact support.",
-        'profile_image_prompt': "Please upload your profile image as a photo or file (JPG, JPEG, PNG, PDF only, max 5 MB). Type 'skip' to proceed without an image. Note: DOC, DOCX, and similar formats are not supported.",
-        'profile_image_success': "Profile image uploaded successfully. Proceed to professional information?",
-        'invalid_file_type': "Invalid file type. Please upload a JPG, JPEG, PNG, or PDF file. DOC, DOCX, and similar formats are not supported.",
-        'file_too_large': "File too large. Please upload an image or file under 5 MB.",
-        'profile_image_skip': "Profile image skipped. Proceed to professional information?",
-        'continue_professional': "Continue to Professional Info",
-        'payment_instructions': "Please make a payment of 100 Birr to:\n\nBank: Commercial Bank of Ethiopia\nAccount: 1000649561382\nName: Jemal Hussen Hassen\n\nAfter payment, please upload a screenshot of the payment confirmation (JPG, JPEG, PNG, PDF only, max 5 MB). Note: DOC, DOCX, and similar formats are not supported.",
-        'payment_screenshot_success': "Payment screenshot uploaded successfully. Awaiting verification.",
-        'payment_verified': "✅ Your payment has been verified! Your CV is being processed.",
-        'payment_rejected': "❌ Your payment was rejected: {reason}. Please start a new order with /start.",
-        'payment_approved': "Your payment has been approved! Your CV is being processed and will be delivered soon.",
-        'reject_reason_prompt': "Please provide the reason for rejecting the payment.",
-        'editing_started':"editing started",
-        
-
-    },
-    'am': {
-        'welcome_new': "ወደ CV ቦት እንኳን በደህና መጡ! የፕሮፌሽናል ሲቪዎን እንፍጠር።\n\nእባክዎ የመጀመሪያ ስምዎን ያስገቡ፡",
-        'welcome_back': "እንኳን ተመልሰው መጡ! ቀድሞ ፕሮፋይል አለዎት። መረጃዎን ማዘመን ወይም አዲስ ሲቪ መፍጠር ይፈልጋሉ?",
-        'select_language': "እባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡\nPlease select your preferred language:",
-        'update_profile': "ፕሮፋይል አዘምን",
-        'new_cv': "አዲስ ሲቪ ፍጠር",
-        'edit_section': "የትኛውን ክፍል ማዘመን ይፈልጋሉ?",
-        'personal_info': "የግል መረጃ",
-        'contact_info': "የእውቂያ መረጃ",
-        'work_experience': "የሥራ ልምድ",
-        'education': "ትምህርት",
-        'skills': "ችሎታዎች",
-        'career_objective': "የሙያ ግብ",
-        'certifications': "ሰርቲፊኬቶች/ሽልማቶች",
-        'projects': "ፕሮጀክቶች",
-        'languages': "ቋንቋዎች",
-        'other_activities': "ሌሎች እንቅስቃሴዎች",
-        'first_name': "እባክዎ የመጀመሪያ ስምዎን ያስገቡ፡",
-        'middle_name': "በጣም ጥሩ! አሁን የአባት ስምዎን (ካለ) ያስገቡ፡",
-        'last_name': "አሁን የአያት ስምዎን ያስገቡ፡",
-        'phone_number': "አሁን የእውቂያ መረጃዎን እንሰብስብ።\nእባክዎ የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ፡ +251911223344):",
-        'email_address': "እባክዎ የኢሜይል አድራሻዎን ያስገቡ፡",
-        'linkedin_profile': "እባክዎ የሊንክዲን ፕሮፋይል ዩአርኤልዎን ያስገቡ (ካለ፣ ወይም 'skip' ይፃፉ):",
-        'city': "እባክዎ የሚኖሩበትን ከተማ ያስገቡ፡",
-        'country': "እባክዎ አገርዎን ያስገቡ፡",
-        'job_title': "ሙያዊ ልምድዎን እንመዝግብ። የቅርብ ጊዜ የሥራ ቦታዎ የሥራ መደብ (Job Title) ምን ነበር?(e.g., Software Engineer) የቅርብ ጊዜ ተመራቂ ከሆኑ ወይም ብዙ የሥራ ልምድ ከሌለዎት፣ እባክዎ በጣም ተዛማጅ የሆነውን የልምምድ ስራዎ internship(e.g., Networking Intern):",
-        'company_name': "እባክዎ ለዚህ የስራ ቦታ የኩባንያውን ስም ያስገቡ። ልምምድ (internship) ከሆነ፣ የተካሄደበትን ዩኒቨርሲቲ ወይም ተቋም መጥቀስ ይችላሉ (e.g.,Microsoft, Ethio Telecom, University of Gondar (for an internship)).",
-        'work_location': "ይህ ስራ ወይም (internship) የት ነበር የሚገኘው?(ለምሳሌ፡ ከተማ፣ አገር):",
-        'work_description': "አሁን፣ የዚህን ስራ  ወይም የልምምድ ስራ (internship) ኃላፊነቶችዎን እና የጊዜ ገደቡን በዝርዝር እንመልከት። ምን እንዳደረጉ፣ ዋና ዋና ስኬቶችዎን፣ እና የጀመሩበትንና የጨረሱበትን ቀን በአጭሩ ያብራሩ። \n\n(e.g. 'የቤተ ሙከራ ሙከራዎችን አከናውኛለሁ፣ ለአዛውንት ሳይንቲስቶች ሪፖርቶችን አዘጋጅቻለሁ (መስከረም 2020 - ግንቦት 2021)'.",
-        'add_another_work': "የሥራ ልምድ ታክሏል። ሌላ ቦታ መጨመር ይፈልጋሉ?\nእባክዎ ከታች አማራጭ ይምረጡ፡",
-        'add_another': "ሌላ ጨምር",
-        'continue': "ቀጥል",
-        'degree_name': "የዲግሪዎ ስም ምንድን ነው? (ለምሳሌ፦ 'የኮምፒውተር ሳይንስ ባችለር ኦፍ ሳይንስ', 'ማስተር ኦፍ ቢዝነስ አድሚኒስትሬሽን', 'የባዮሎጂ ፒኤችዲ'):",
-        'institution_name': "እባክዎ ይህንን ዲግሪ ያገኙበትን የዩኒቨርሲቲ ወይም የተቋም ስም ያስገቡ(e.g.,  'መቀሌ ዩኒቨርሲቲ'):",
-        'gpa': "ለዚህ ዲግሪ የነበረው GPA ስንት ነበር? (ለምሳሌ፦ '3.5/4.0', '4.0/5.0'፣ ወይም ማካተት ካልፈለጉ 'skip' ብለው ይጻፉ)",
-        'edu_description': "እባክዎ የዚህን ዲግሪ የመጀመሪያ እና የመጨረሻ ቀናት ይንገሩን (e.g., 'Sept 2018 - June 2022', '2016 - 2019', 'Aug 2020 - Present')",
-        'achievements_honors': "እባክዎ ማንኛውንም ስኬቶች ወይም ክብር ይዘርዝሩ (ለምሳሌ፡ 'የዲን ዝርዝር'፣ ወይም 'skip' ይፃፉ ከሌለ):",
-        'add_another_edu': "ዲግሪ ታክሏል። ሌላ ዲግሪ መግቢያ መጨመር ይፈልጋሉ?\nእባክዎ ከታች አማራጭ ይምረጡ፡",
-        'skill_name': "ከዲግሪዎ ያገኙት ቁልፍ ክህሎት ምንድን ነው? ይህ ቴክኒካዊ ክህሎት፣ የምርምር ዘዴ (e.g., 'Graphic Design' , 'Data Analysis')",
-        'skill_proficiency': "እባክዎ ለዚህ ችሎታ የብቃት ደረጃዎን ያስገቡ (ለምሳሌ፡ 'ጀማሪ'፣ 'መካከለኛ'፣ 'ከፍተኛ'):",
-        'add_another_skill': "ችሎታ ታክሏል። ሌላ ችሎታ መጨመር ይፈልጋሉ?\nእባክዎ ከታች አማራጭ ይምረጡ፡",
-        'career_summary': "እባክዎ የሁለተኛ ደረጃ ትምህርት ቤትዎን ስም እና የሚገኝበትን ቦታ ይንገሩን። ከተማውን እና ሀገሩን ያካትቱ(e.g., \n'Menelik II Secondary School, Addis Ababa, Ethiopia'.",
-        'certificate_name': "ማናቸውም ሰርተፍኬቶች ወይም ሽልማቶች አግኝተዋል? እባክዎ አንዱን እዚህ ይዘርዝሩ። ይህ ሙያዊ ሰርተፍኬት፣ አካዳሚያዊ ሽልማት ወይም ለአንድ የተወሰነ ክህሎት እውቅና ሊሆን ይችላል (e.g.,'AWS Certified Developer'):",
-        'issuer': "እባክዎ ይህንን ሰርተፍኬት ወይም ሽልማት የሰጠው ድርጅት ወይም ተቋም ስም ያስገቡ(e.g, \n'Amazon Web Services'):",
-        'add_another_cert': "ሰርቲፊኬት ታክሏል። ሌላ ሰርቲፊኬት መጨመር ይፈልጋሉ?\nእባክዎ ከታች አማራጭ ይምረጡ፡",
-        'project_title': "ስለ አንድ ቁልፍ ፕሮጀክት፣ ጥናት ወይም የመጨረሻ ዓመት የዩኒቨርሲቲ ፕሮጀክት ይንገሩን። ርዕሱ ምን ነበር?(e.g 'Study on Renewable Energy Integration in Rural Areas')",
-        'project_description': "አሁን፣ ስለ ፕሮጀክትዎ፣ ጥናትዎ ወይም የመጨረሻ ዓመት የዩኒቨርሲቲ ፕሮጀክትዎ ዝርዝር መግለጫ ይስጡን። በእርስዎ አስተዋፅዖዎች፣ ጥቅም ላይ የዋሉ ዘዴዎች፣ ውጤቶች እና የጀመሩበትና የጨረሱበት ቀናት ላይ ያተኩሩ። (e.g., 'Developed a web application using Python and Django, managing database integration and user authentication (Sept 2022 - April 2023)', ).",
-        'project_link': "እባክዎ የሪሰርቹን/የፕሮጀክቱን አገናኝ(link) ያቅርቡ (e.g., GitHub repository, live demo, or type 'skip' if none):",
-        'add_another_project': "ፕሮጀክት/ሪሰርች ታክሏል። ሌላ ፕሮጀክት/ሪሰርች መጨመር ይፈልጋሉ?\nእባክዎ ከታች አማራጭ ይምረጡ፡",
-        'language_name': "እባክዎ የሚናገሩትን ቋንቋ ያስገቡ (e.g., 'Amahric', 'English'):",
-        'language_proficiency': "እባክዎ ለዚህ ቋንቋ የብቃት ደረጃዎን ያስገቡ (ለምሳሌ፡ 'Fluent'፣ 'Native'፣ 'Intermediate'):",
-        'add_another_language': "ቋንቋ ታክሏል። ሌላ ቋንቋ መጨመር ይፈልጋሉ?\nእባክዎ ከታች አማራጭ ይምረጡ፡",
-        'activities': "እባክዎ ሌሎች እንቅስቃሴዎችን (በጎ ፈቃደኝነት፣ የትርፍ ጊዜ ማሳለፊያዎች፣ ወዘተ) ይግለፁ፡",
-        'summary_header': "የመረጃዎ ማጠቃለያ ይኸው፡\n\n",
-        'summary_name': "ስም",
-        'summary_contact': "እውቂያ",
-        'summary_location': "መገኛ ቦታ",
-        'summary_availability': "የሚገኝነት",
-        'summary_work': "የሥራ ልምድ",
-        'summary_responsibilities': "ኃላፊነቶች",
-        'summary_education': "ትምህርት",
-        'summary_gpa': "ጂፒኤ",
-        'summary_edu_description': "መግለጫ",
-        'summary_achievements': "ስኬቶች/ክብር",
-        'summary_skills': "ችሎታዎች",
-        'summary_proficiency': "ብቃት",
-        'summary_certifications': "ሰርቲፊኬቶች/ሽልማቶች",
-        'summary_projects': "ፕሮጀክቶች",
-        'summary_project_link': "አገናኝ",
-        'summary_languages': "ቋንቋዎች",
-        'confirm': "✅ አረጋግጥ",
-        'edit': "✏️ አርም",
-        'payment_instructions': "እባክዎ 100 ብር ይክፈሉ፡\n\nባንክ፡ የኢትዮጵያ ንግድ ባንክ\nመለያ፡ 1000649561382\nስም፡ Jemal Hussen Hassen አገልግሎት\n\nክፍያ ከፈጸሙ በኋላ፣ እባክዎ የክፍያ ማረጋገጫ ፎቶ ይስቀሉ።",
-        'payment_confirmation': "እናመሰግናለን! ክፍያዎ በሂደት ላይ ነው። ከተረጋገጠ በኋላ እናሳውቅዎታለን። እባክዎ ቆይተው ይመለሱ።",
-        'cancel_message': "ክወናው ተሰርዟል። እንደገና ለመጀመር /start ይፃፉ።",
-        'help_message': "ሲቪ ፕሮፋይልዎን ለመፍጠር ወይም ለማዘመን /start ይጠቀሙ።\nክወናውን ለማቆም /cancel ይጠቀሙ።",
-        'error_message': "ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ ወይም ድጋፍ ያግኙ።",
-        'profile_image_prompt': "እባክዎ የፕሮፋይል ምስልዎን እንደ ፎቶ ወይም ፋይል (JPG, JPEG, PNG, PDF ብቻ፣ ከፍተኛ 5 ሜባ) ይስቀሉ። ያለ ምስል ለመቀጠል 'skip' ይፃፉ። ማሳሰቢያ፡ DOC, DOCX እና ተመሳሳይ ቅርጸቶች አይደገፉም።",
-        'profile_image_success': "የፕሮፋይል ምስል በተሳካ ሁኔታ ተሰቅሏል። ወደ ሙያዊ መረጃ መቀጠል?",
-        'invalid_file_type': "የተሳሳተ የፋይል አይነት። እባክዎ JPG, JPEG, PNG ወይም PDF ፋይል ይስቀሉ። DOC, DOCX እና ተመሳሳይ ቅርጸቶች አይደገፉም።",
-        'file_too_large': "ፋይሉ በጣም ትልቅ ነው። እባክዎ ከ5 ሜባ በታች ያለ ምስል ወይም ፋይል ይስቀሉ።",
-        'profile_image_skip': "የፕሮፋይል ምስል ተዘልሏል። ወደ ሙያዊ መረጃ መቀጠል?",
-        'continue_professional': "ወደ ሙያዊ መረጃ ቀጥል",
-        'payment_instructions': "እባክዎ 100 ብር ይክፈሉ፡\n\nባንክ፡ የኢትዮጵያ ንግድ ባንክ\nመለያ፡ 1000649561382\nስም፡ Jemal Hussen Hassen\n\nክፍያ ከፈጸሙ በኋላ፣ እባክዎ የክፍያ ማረጋገጫ ፎቶ (JPG, JPEG, PNG, PDF ብቻ፣ ከፍተኛ 5 ሜባ) ይስቀሉ። ማሳሰቢያ፡ DOC, DOCX እና ተመሳሳይ ቅርጸቶች አይደገፉም።",
-        'payment_screenshot_success': "የክፍያ ማረጋገጫ ፎቶ በተሳካ ሁኔታ ተሰቅሏል። ማረጋገጫ በመጠበቅ ላይ።",
-        'payment_verified': "✅ ክፍያዎ ተረጋግጧል! ሲቪዎ በመዘጋጀት ላይ ነው።",
-        'payment_rejected': "❌ ክፍያዎ ተቀባይነት አላገኘም፡ {reason}። እባክዎ ከ/start ጋር አዲስ ትዕዛዝ ይጀምሩ።",
-        'payment_approved': "ክፍያዎ ተፈቅዷል! ሲቪዎ በመዘጋጀት ላይ ነው እና በቅርቡ ይደርሰዎታል።",
-        'reject_reason_prompt': "እባክዎ ክፍያውን ለመከልከል ምክንያቱን ያቅርቡ።",
-    }
-}
 
 
 # Load environment variables
@@ -304,23 +117,12 @@ class CVBot:
         self.user_sessions: Dict[str, Dict] = {}  # Dictionary to store user-specific data
         self.user_cache: Dict[str, int] = {}  # Cache for username to user_id mapping
 
-        # Initialize TestBot and register its handlers
-        logger.info("🔄 Initializing TestBot")
-        self.test_bot = TestBot()
-        logger.info("🔄 Registering TestBot handlers")
-        self.test_bot.register_handlers(self.application)
 
         logger.info("🔄 Initializing CVBot instance")
         logger.info("🔄 Building Application instance")
         logger.info("🔄 Setting up handlers")
         self.setup_handlers()
-        logger.info("✅ CVBot initialized successfully")
-
-
-
-
-
-        
+        logger.info("✅ CVBot initialized successfully") 
 
 
     async def post_init(self, application: Application) -> None:
@@ -567,7 +369,7 @@ class CVBot:
             return START
         else:
             await query.edit_message_text(
-                self.get_prompt(session, 'welcome_new')
+                self.get_prompt(session, 'welcome_new'), parse_mode="HTML"
             )
             session['current_field'] = 'firstName'
             return COLLECT_PERSONAL_INFO
@@ -630,7 +432,7 @@ class CVBot:
             return START
         else:
             await query.edit_message_text(
-                self.get_prompt(session, 'welcome_new')
+                self.get_prompt(session, 'welcome_new')  , parse_mode="HTML"
             )
             session['current_field'] = 'firstName'
             return COLLECT_PERSONAL_INFO
@@ -1322,7 +1124,8 @@ class CVBot:
             # Send payment instructions
             await context.bot.send_message(
                 chat_id=session['chat_id'],
-                text=self.get_prompt(session, 'payment_instructions')
+                text=self.get_prompt(session, 'payment_instructions'),
+                parse_mode="HTML"
             )
             return PAYMENT
         elif query.data == "edit_no":
@@ -1507,7 +1310,7 @@ class CVBot:
                 )
                 logger.info(f"Payment document forwarded to private channel for user {telegram_id}, order {session['order_id']}")
             else:
-                await update.message.reply_text(self.get_prompt(session, 'payment_instructions'))
+                await update.message.reply_text(self.get_prompt(session, 'payment_instructions'), parse_mode="HTML")
                 return PAYMENT
             
             order = Order.get_by_id(session['order_id'])
