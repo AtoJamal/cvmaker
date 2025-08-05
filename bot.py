@@ -56,6 +56,11 @@ load_dotenv()
 # Get Telegram bot token and private channel ID
 telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
 private_channel_id = os.getenv('PRIVATE_CHANNEL_ID')
+tutorial_video_message_id = os.getenv('TUTORIAL_VIDEO_MESSAGE_ID')
+sample_cv_message_ids = os.getenv('SAMPLE_CV_MESSAGE_IDS', '').split(',') if os.getenv('SAMPLE_CV_MESSAGE_IDS') else []
+
+
+# Add new conversation state (add this to the existing states tuple)
 
 # Initialize Firebase only if not already initialized
 logger = logging.getLogger(__name__)
@@ -137,10 +142,13 @@ class CVBot:
                 SELECT_LANGUAGE: [
                     CallbackQueryHandler(self.select_language, pattern="^lang_")
                 ],
+
                 START: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.start_collecting_info),
-                    CallbackQueryHandler(self.start_collecting_info, pattern="^(update_profile|new_cv)$")
+                    CallbackQueryHandler(self.start_collecting_info, pattern="^(update_profile|new_cv)$"),
+                    CallbackQueryHandler(self.handle_returning_user_choice, pattern="^(new_cv|guide_video|samples)$")
                 ],
+
                 COLLECT_PERSONAL_INFO: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.collect_personal_info)
                 ],
@@ -222,6 +230,15 @@ class CVBot:
         self.application.add_handler(MessageHandler(filters.ChatType.PRIVATE, self.cache_user_info))
         self.application.add_error_handler(self.error_handler)
 
+        self.application.add_handler(MessageHandler(filters.VIDEO | filters.Document.ALL, self.log_file_id), group=1)
+
+    async def log_file_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Temporary handler to log file_id of uploaded media"""
+        if update.message and update.message.chat_id == int(private_channel_id):
+            if update.message.video:
+                logger.info(f"Video file_id: {update.message.video.file_id}")
+            elif update.message.document:
+                logger.info(f"Document file_id: {update.message.document.file_id}")
     def start_background_tasks(self) -> None:
         """Start background tasks for polling order status changes"""
         self.application.create_task(self.poll_order_status_changes())
@@ -373,22 +390,214 @@ class CVBot:
         session['language'] = query.data.split('_')[1]
         
         candidate = Candidate.get_by_telegram_user_id(telegram_id)
-        if candidate:
-            await query.edit_message_text(
-                self.get_prompt(session, 'welcome_back'),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(self.get_prompt(session, 'update_profile'), callback_data="update_profile")],
-                    [InlineKeyboardButton(self.get_prompt(session, 'new_cv'), callback_data="new_cv")]
-                ])
-            )
-            return START
-        else:
+        menu_text = self.get_prompt(session, 'welcome_back' if candidate else 'welcome')
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(self.get_prompt(session, 'create_new_cv'), callback_data="new_cv")],
+            [InlineKeyboardButton(self.get_prompt(session, 'guide_video'), callback_data="guide_video")],
+            [InlineKeyboardButton(self.get_prompt(session, 'samples'), callback_data="samples")]
+        ])
+        
+        # Edit the query message and store the message ID
+        message = await query.edit_message_text(
+            menu_text,
+            reply_markup=reply_markup
+        )
+        session['menu_message_id'] = message.message_id
+        logger.info(f"Stored menu message ID {message.message_id} for user {telegram_id}")
+        
+        return START
+    
+    async def handle_returning_user_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle choices for users"""
+        query = update.callback_query
+        await query.answer()
+        
+        telegram_id = str(query.from_user.id)
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = query.message.chat_id
+        
+        if query.data == "new_cv":
+            # Delete the previous menu message if it exists
+            if 'menu_message_id' in session:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=session['chat_id'],
+                        message_id=session['menu_message_id']
+                    )
+                    logger.info(f"Deleted menu message ID {session['menu_message_id']} for user {telegram_id}")
+                    del session['menu_message_id']
+                except Exception as e:
+                    logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {telegram_id}: {str(e)}")
             await query.edit_message_text(
                 self.get_prompt(session, 'welcome_new'), parse_mode="HTML"
             )
             session['current_field'] = 'firstName'
             return COLLECT_PERSONAL_INFO
-
+        elif query.data == "guide_video":
+            await self.send_tutorial_video(session['chat_id'], session, context)
+            # Show the menu again after sending the video
+            menu_text = self.get_prompt(session, 'choose_option')
+            reply_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton(self.get_prompt(session, 'create_new_cv'), callback_data="new_cv")],
+                [InlineKeyboardButton(self.get_prompt(session, 'guide_video'), callback_data="guide_video")],
+                [InlineKeyboardButton(self.get_prompt(session, 'samples'), callback_data="samples")]
+            ])
+            message = await context.bot.send_message(
+                chat_id=session['chat_id'],
+                text=menu_text,
+                reply_markup=reply_markup
+            )
+            session['menu_message_id'] = message.message_id
+            logger.info(f"Stored menu message ID {message.message_id} for user {telegram_id} after guide video")
+            return START
+        elif query.data == "samples":
+            await self.send_sample_cvs(session['chat_id'], session, context)
+            # Show the menu again after sending samples
+            menu_text = self.get_prompt(session, 'choose_option')
+            reply_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton(self.get_prompt(session, 'create_new_cv'), callback_data="new_cv")],
+                [InlineKeyboardButton(self.get_prompt(session, 'guide_video'), callback_data="guide_video")],
+                [InlineKeyboardButton(self.get_prompt(session, 'samples'), callback_data="samples")]
+            ])
+            message = await context.bot.send_message(
+                chat_id=session['chat_id'],
+                text=menu_text,
+                reply_markup=reply_markup
+            )
+            session['menu_message_id'] = message.message_id
+            logger.info(f"Stored menu message ID {message.message_id} for user {telegram_id} after samples")
+            return START
+    
+    async def send_tutorial_video(self, chat_id: int, session: dict, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send tutorial video to user without forwarding tag"""
+        # Delete the previous menu message if it exists
+        if 'menu_message_id' in session:
+            try:
+                await context.bot.delete_message(
+                    chat_id=session['chat_id'],
+                    message_id=session['menu_message_id']
+                )
+                logger.info(f"Deleted menu message ID {session['menu_message_id']} for user {session['chat_id']}")
+                del session['menu_message_id']
+            except Exception as e:
+                logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {session['chat_id']}: {str(e)}")
+        
+        if tutorial_video_message_id:
+            try:
+                # Get the original message to extract file_id and caption
+                original_message = await context.bot.forward_message(
+                    chat_id=chat_id,  # Temporarily forward to get message object
+                    from_chat_id=private_channel_id,
+                    message_id=int(tutorial_video_message_id)
+                )
+                
+                # Delete the forwarded message immediately
+                await context.bot.delete_message(chat_id=chat_id, message_id=original_message.message_id)
+                
+                # Now resend based on content type
+                if original_message.video:
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=original_message.video.file_id,
+                        caption=original_message.caption or self.get_prompt(session, 'tutorial_message'),
+                        parse_mode='HTML' if original_message.caption else None
+                    )
+                elif original_message.document:
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=original_message.document.file_id,
+                        caption=original_message.caption or self.get_prompt(session, 'tutorial_message'),
+                        parse_mode='HTML' if original_message.caption else None
+                    )
+                elif original_message.animation:
+                    await context.bot.send_animation(
+                        chat_id=chat_id,
+                        animation=original_message.animation.file_id,
+                        caption=original_message.caption or self.get_prompt(session, 'tutorial_message'),
+                        parse_mode='HTML' if original_message.caption else None
+                    )
+                else:
+                    # Fallback - send tutorial message
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=self.get_prompt(session, 'tutorial_message')
+                    )
+            except Exception as e:
+                logger.error(f"Error sending tutorial video: {str(e)}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=self.get_prompt(session, 'error_message')
+                )
+    async def send_sample_cvs(self, chat_id: int, session: dict, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send sample CV files to user without forwarding tags"""
+        # Delete the previous menu message if it exists
+        if 'menu_message_id' in session:
+            try:
+                await context.bot.delete_message(
+                    chat_id=session['chat_id'],
+                    message_id=session['menu_message_id']
+                )
+                logger.info(f"Deleted menu message ID {session['menu_message_id']} for user {session['chat_id']}")
+                del session['menu_message_id']
+            except Exception as e:
+                logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {session['chat_id']}: {str(e)}")
+        
+        if sample_cv_message_ids and sample_cv_message_ids[0]:  # Check if we have valid message IDs
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=self.get_prompt(session, 'sending_samples')
+                )
+                
+                for message_id in sample_cv_message_ids:
+                    if message_id.strip():  # Skip empty message IDs
+                        try:
+                            # Temporarily forward to get message object
+                            original_message = await context.bot.forward_message(
+                                chat_id=chat_id,
+                                from_chat_id=private_channel_id,
+                                message_id=int(message_id.strip())
+                            )
+                            
+                            # Delete the forwarded message immediately
+                            await context.bot.delete_message(chat_id=chat_id, message_id=original_message.message_id)
+                            
+                            # Resend based on content type
+                            if original_message.document:
+                                await context.bot.send_document(
+                                    chat_id=chat_id,
+                                    document=original_message.document.file_id,
+                                    caption=original_message.caption,
+                                    parse_mode='HTML' if original_message.caption else None
+                                )
+                            elif original_message.photo:
+                                # Get the highest resolution photo
+                                photo = original_message.photo[-1]
+                                await context.bot.send_photo(
+                                    chat_id=chat_id,
+                                    photo=photo.file_id,
+                                    caption=original_message.caption,
+                                    parse_mode='HTML' if original_message.caption else None
+                                )
+                            elif original_message.video:
+                                await context.bot.send_video(
+                                    chat_id=chat_id,
+                                    video=original_message.video.file_id,
+                                    caption=original_message.caption,
+                                    parse_mode='HTML' if original_message.caption else None
+                                )
+                            else:
+                                logger.warning(f"Unsupported media type in message {message_id}")
+                                
+                        except Exception as e:
+                            logger.error(f"Error resending sample CV message {message_id}: {str(e)}")
+                
+            except Exception as e:
+                logger.error(f"Error sending sample CVs: {str(e)}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=self.get_prompt(session, 'error_message')
+                )
     async def start_collecting_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle user choice to update profile or create new CV"""
         query = update.callback_query
@@ -1651,6 +1860,18 @@ class CVBot:
         """Cancel the current conversation"""
         telegram_id = str(update.effective_user.id)
         session = self.get_user_session(telegram_id)
+        
+        # Delete the previous menu message if it exists
+        if 'menu_message_id' in session:
+            try:
+                await context.bot.delete_message(
+                    chat_id=session['chat_id'],
+                    message_id=session['menu_message_id']
+                )
+                logger.info(f"Deleted menu message ID {session['menu_message_id']} for user {telegram_id} on cancel")
+                del session['menu_message_id']
+            except Exception as e:
+                logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {telegram_id} on cancel: {str(e)}")
         
         if telegram_id in self.user_sessions:
             del self.user_sessions[telegram_id]

@@ -1,7 +1,9 @@
 PROMPTS = {
     'en': {
+        'welcome':"Welcome to the CV Producer bot!",
         'welcome_new': "<pre>Welcome to the CV Producer bot!</pre> \nPlease enter your first name:",
-        'welcome_back': "Welcome back! You already have a profile. Would you like to update your information or create a new CV?",
+        'choose_option':"Please choose what you would like to do next",
+        'welcome_back': "Welcome back! You already have a profile. Would you like to do next?",
         'select_language': "Please select your preferred language:\nእባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡",
         'update_profile': "Update Profile",
         'new_cv': "Create New CV",
@@ -94,6 +96,14 @@ PROMPTS = {
         'payment_retry_instructions':"Your previous payment was rejected. Please upload a new payment screenshot.",
         'no_rejected_payment':"You don't have a rejected payment. Use /start to create a new CV order.",
         'payment_retry_success':"Payment screenshot uploaded successfully! Please wait for admin verification.",
+        'tutorial_message': '📹 Here\'s a helpful video guide on how to fill out your CV properly:',
+        'choose_action': '👋 Welcome! Please choose what you\'d like to do:',
+        'create_cv': '📝 Create CV',
+        'samples': '📁 View Samples',
+        'guide_video': '📹 Guide Video',
+        'create_new_cv': '🆕 Create New CV',
+        'sending_samples': '📁 Here are some sample CVs for your reference:',
+        'samples_sent': '✅ Sample CVs have been sent above. You can use these as reference for creating your own CV.',
 
     },
     'am': {
@@ -101,6 +111,7 @@ PROMPTS = {
         'welcome_back': "እንኳን ተመልሰው መጡ! ቀድሞ ፕሮፋይል አለዎት። መረጃዎን ማዘመን ወይም አዲስ ሲቪ መፍጠር ይፈልጋሉ?",
         'select_language': "እባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡\nPlease select your preferred language:",
         'update_profile': "ፕሮፋይል አዘምን",
+        'choose_option': "እባክዎ የሚፈልጉትን አማራጭ ይምረጡ፡",
         'new_cv': "አዲስ ሲቪ ፍጠር",
         'edit_section': "የትኛውን ክፍል ማዘመን ይፈልጋሉ?",
         'personal_info': "የግል መረጃ",
@@ -190,5 +201,13 @@ PROMPTS = {
         'payment_retry_instructions':"የቀደመው ክፍያዎ ተቋርጧል። እባክዎን አዲስ የክፍያ ቅጽበተ-ገጽ ያስገቡ",
         'no_rejected_payment':"የተቋረጠ ክፍያ የለዎትም። አዲስ የሲቪ ትዕዛዝ ለመፍጠር /start ይጠቀሙ።",
         'payment_retry_success':"የክፍያ ቅጽበተ-ገጽ በተሳካ ሁኔታ ተሰቅሏል! እባክዎን ለአስተዳዳሪ ማረጋገጫ ይጠብቁ።",
+        'tutorial_message': '📹 የሲቪ ማቀነባበር መመሪያ ቪዲዮ:',
+        'choose_action': '👋 እንኳን በደህና መጡ! ምን ማድረግ እንደሚፈልጉ ይምረጡ:',
+        'create_cv': '📝 ሲቪ ይፍጠሩ',
+        'samples': '📁 ናሙና ይመልከቱ',
+        'guide_video': '📹 መመሪያ ቪዲዮ',
+        'create_new_cv': '🆕 አዲስ ሲቪ ይፍጠሩ',
+        'sending_samples': '📁 የሲቪ ናሙናዎች:',
+        'samples_sent': '✅ የሲቪ ናሙናዎች ተልከዋል። እነዚህን እንደ ማጣቀሻ ተጠቅመው የራስዎን ሲቪ መፍጠር ይችላሉ።',
     }
 }
