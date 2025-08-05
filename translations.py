@@ -3,7 +3,7 @@ PROMPTS = {
         'welcome':"Welcome to the CV Producer bot!",
         'welcome_new': "<pre>Welcome to the CV Producer bot!</pre> \nPlease enter your first name:",
         'choose_option':"Please choose what you would like to do next",
-        'welcome_back': "Welcome back! You already have a profile. Would you like to do next?",
+        'welcome_back': "Welcome back! You already have a profile. What would you like to do next?",
         'select_language': "Please select your preferred language:\nእባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡",
         'update_profile': "Update Profile",
         'new_cv': "Create New CV",

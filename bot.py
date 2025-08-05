@@ -59,6 +59,11 @@ private_channel_id = os.getenv('PRIVATE_CHANNEL_ID')
 tutorial_video_message_id = os.getenv('TUTORIAL_VIDEO_MESSAGE_ID')
 sample_cv_message_ids = os.getenv('SAMPLE_CV_MESSAGE_IDS', '').split(',') if os.getenv('SAMPLE_CV_MESSAGE_IDS') else []
 
+tutorial_video_file_id = os.getenv('TUTORIAL_VIDEO_FILE_ID')
+tutorial_video_caption = os.getenv('TUTORIAL_VIDEO_CAPTION', '')
+sample_cv_file_ids = os.getenv('SAMPLE_CV_FILE_IDS', '').split(',') if os.getenv('SAMPLE_CV_FILE_IDS') else []
+sample_cv_captions = os.getenv('SAMPLE_CV_CAPTIONS', '').split(',') if os.getenv('SAMPLE_CV_CAPTIONS') else [''] * len(sample_cv_file_ids)
+
 
 # Add new conversation state (add this to the existing states tuple)
 
@@ -469,7 +474,7 @@ class CVBot:
             return START
     
     async def send_tutorial_video(self, chat_id: int, session: dict, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Send tutorial video to user without forwarding tag"""
+        """Send tutorial video to user using stored file_id"""
         # Delete the previous menu message if it exists
         if 'menu_message_id' in session:
             try:
@@ -482,54 +487,31 @@ class CVBot:
             except Exception as e:
                 logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {session['chat_id']}: {str(e)}")
         
-        if tutorial_video_message_id:
+        if tutorial_video_file_id:
             try:
-                # Get the original message to extract file_id and caption
-                original_message = await context.bot.forward_message(
-                    chat_id=chat_id,  # Temporarily forward to get message object
-                    from_chat_id=private_channel_id,
-                    message_id=int(tutorial_video_message_id)
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=tutorial_video_file_id,
+                    caption=tutorial_video_caption or self.get_prompt(session, 'tutorial_message'),
+                    parse_mode='HTML' if tutorial_video_caption else None
                 )
-                
-                # Delete the forwarded message immediately
-                await context.bot.delete_message(chat_id=chat_id, message_id=original_message.message_id)
-                
-                # Now resend based on content type
-                if original_message.video:
-                    await context.bot.send_video(
-                        chat_id=chat_id,
-                        video=original_message.video.file_id,
-                        caption=original_message.caption or self.get_prompt(session, 'tutorial_message'),
-                        parse_mode='HTML' if original_message.caption else None
-                    )
-                elif original_message.document:
-                    await context.bot.send_document(
-                        chat_id=chat_id,
-                        document=original_message.document.file_id,
-                        caption=original_message.caption or self.get_prompt(session, 'tutorial_message'),
-                        parse_mode='HTML' if original_message.caption else None
-                    )
-                elif original_message.animation:
-                    await context.bot.send_animation(
-                        chat_id=chat_id,
-                        animation=original_message.animation.file_id,
-                        caption=original_message.caption or self.get_prompt(session, 'tutorial_message'),
-                        parse_mode='HTML' if original_message.caption else None
-                    )
-                else:
-                    # Fallback - send tutorial message
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=self.get_prompt(session, 'tutorial_message')
-                    )
+                logger.info(f"Sent tutorial video with file_id {tutorial_video_file_id} to chat_id {chat_id}")
             except Exception as e:
                 logger.error(f"Error sending tutorial video: {str(e)}")
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=self.get_prompt(session, 'error_message')
                 )
+        else:
+            logger.warning("No tutorial video file_id provided")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=self.get_prompt(session, 'error_message')
+            )
+    
+    
     async def send_sample_cvs(self, chat_id: int, session: dict, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Send sample CV files to user without forwarding tags"""
+        """Send sample CV files to user using stored file_ids"""
         # Delete the previous menu message if it exists
         if 'menu_message_id' in session:
             try:
@@ -542,62 +524,50 @@ class CVBot:
             except Exception as e:
                 logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {session['chat_id']}: {str(e)}")
         
-        if sample_cv_message_ids and sample_cv_message_ids[0]:  # Check if we have valid message IDs
+        if sample_cv_file_ids and sample_cv_file_ids[0]:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=self.get_prompt(session, 'sending_samples')
                 )
-                
-                for message_id in sample_cv_message_ids:
-                    if message_id.strip():  # Skip empty message IDs
+                for file_id, caption in zip(sample_cv_file_ids, sample_cv_captions):
+                    if file_id.strip():  # Skip empty file IDs
                         try:
-                            # Temporarily forward to get message object
-                            original_message = await context.bot.forward_message(
-                                chat_id=chat_id,
-                                from_chat_id=private_channel_id,
-                                message_id=int(message_id.strip())
-                            )
-                            
-                            # Delete the forwarded message immediately
-                            await context.bot.delete_message(chat_id=chat_id, message_id=original_message.message_id)
-                            
-                            # Resend based on content type
-                            if original_message.document:
+                            # Assume file_id could be for document or photo
+                            # Try sending as document first
+                            try:
                                 await context.bot.send_document(
                                     chat_id=chat_id,
-                                    document=original_message.document.file_id,
-                                    caption=original_message.caption,
-                                    parse_mode='HTML' if original_message.caption else None
+                                    document=file_id,
+                                    caption=caption or None,
+                                    parse_mode='HTML' if caption else None
                                 )
-                            elif original_message.photo:
-                                # Get the highest resolution photo
-                                photo = original_message.photo[-1]
+                                logger.info(f"Sent sample CV document with file_id {file_id} to chat_id {chat_id}")
+                            except telegram.error.BadRequest:
+                                # If document fails, try as photo
                                 await context.bot.send_photo(
                                     chat_id=chat_id,
-                                    photo=photo.file_id,
-                                    caption=original_message.caption,
-                                    parse_mode='HTML' if original_message.caption else None
+                                    photo=file_id,
+                                    caption=caption or None,
+                                    parse_mode='HTML' if caption else None
                                 )
-                            elif original_message.video:
-                                await context.bot.send_video(
-                                    chat_id=chat_id,
-                                    video=original_message.video.file_id,
-                                    caption=original_message.caption,
-                                    parse_mode='HTML' if original_message.caption else None
-                                )
-                            else:
-                                logger.warning(f"Unsupported media type in message {message_id}")
-                                
+                                logger.info(f"Sent sample CV photo with file_id {file_id} to chat_id {chat_id}")
                         except Exception as e:
-                            logger.error(f"Error resending sample CV message {message_id}: {str(e)}")
-                
+                            logger.error(f"Error sending sample CV with file_id {file_id}: {str(e)}")
+                logger.info(f"Sent {len(sample_cv_file_ids)} sample CVs to chat_id {chat_id}")
             except Exception as e:
                 logger.error(f"Error sending sample CVs: {str(e)}")
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=self.get_prompt(session, 'error_message')
                 )
+        else:
+            logger.warning("No sample CV file_ids provided")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=self.get_prompt(session, 'error_message')
+            )
+    
     async def start_collecting_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle user choice to update profile or create new CV"""
         query = update.callback_query
