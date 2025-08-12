@@ -53,7 +53,7 @@ PROMPTS = {
         'language_name': "Please enter a language you speak, one at a time (e.g., 'Amharic','English'):",
         'language_proficiency': "Please enter your proficiency level for this language (e.g., 'Fluent', 'Native', 'Intermediate'):",
         'add_another_language': "Language added. Would you like to add another language?\nPlease select an option below:",
-        'activities': "What was your internship title? (or, type 'skip' if none):",
+        'activities': "internship title and Reference  (or, type 'skip' if none):",
         'summary_header': "Here's a summary of your information:\n\n",
         'summary_name': "Name",
         'summary_contact': "Contact",
