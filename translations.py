@@ -107,6 +107,7 @@ PROMPTS = {
 
     },
     'am': {
+        'welcome':"ወደ CV ቦት እንኳን በደህና መጡ!",
         'welcome_new': "ወደ CV ቦት እንኳን በደህና መጡ! የፕሮፌሽናል ሲቪዎን እንፍጠር።\n\nእባክዎ የመጀመሪያ ስምዎን ያስገቡ፡",
         'welcome_back': "እንኳን ተመልሰው መጡ! ቀድሞ ፕሮፋይል አለዎት። መረጃዎን ማዘመን ወይም አዲስ ሲቪ መፍጠር ይፈልጋሉ?",
         'select_language': "እባክዎ የሚፈልጉትን ቋንቋ ይምረጡ፡\nPlease select your preferred language:",
