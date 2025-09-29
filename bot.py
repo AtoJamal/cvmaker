@@ -523,7 +523,7 @@ class CVBot:
                 del session['menu_message_id']
             except Exception as e:
                 logger.warning(f"Failed to delete menu message ID {session['menu_message_id']} for user {session['chat_id']}: {str(e)}")
-        
+            
         if sample_cv_file_ids and sample_cv_file_ids[0]:
             try:
                 await context.bot.send_message(
@@ -531,27 +531,16 @@ class CVBot:
                     text=self.get_prompt(session, 'sending_samples')
                 )
                 for file_id, caption in zip(sample_cv_file_ids, sample_cv_captions):
-                    if file_id.strip():  # Skip empty file IDs
+                    if file_id.strip():
                         try:
-                            # Assume file_id could be for document or photo
-                            # Try sending as document first
-                            try:
-                                await context.bot.send_document(
-                                    chat_id=chat_id,
-                                    document=file_id,
-                                    caption=caption or None,
-                                    parse_mode='HTML' if caption else None
-                                )
-                                logger.info(f"Sent sample CV document with file_id {file_id} to chat_id {chat_id}")
-                            except telegram.error.BadRequest:
-                                # If document fails, try as photo
-                                await context.bot.send_photo(
-                                    chat_id=chat_id,
-                                    photo=file_id,
-                                    caption=caption or None,
-                                    parse_mode='HTML' if caption else None
-                                )
-                                logger.info(f"Sent sample CV photo with file_id {file_id} to chat_id {chat_id}")
+                            # Only send as document
+                            await context.bot.send_document(
+                                chat_id=chat_id,
+                                document=file_id,
+                                caption=caption or None,
+                                parse_mode='HTML' if caption else None
+                            )
+                            logger.info(f"Sent sample CV document with file_id {file_id} to chat_id {chat_id}")
                         except Exception as e:
                             logger.error(f"Error sending sample CV with file_id {file_id}: {str(e)}")
                 logger.info(f"Sent {len(sample_cv_file_ids)} sample CVs to chat_id {chat_id}")
