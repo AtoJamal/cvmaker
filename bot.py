@@ -199,7 +199,9 @@ class CVBot:
                 ],
                 CONFIRM_ORDER: [
                     CallbackQueryHandler(self.confirm_order, pattern="^confirm_"),
-                    CallbackQueryHandler(self.edit_info, pattern="^edit_")
+                    CallbackQueryHandler(self.edit_info, pattern="^edit_"),
+                    CallbackQueryHandler(self.select_price, pattern="^select_"),
+                    CallbackQueryHandler(self.upload_screenshot_click, pattern="^upload_"),
                 ],
                 PAYMENT: [
                     MessageHandler(
@@ -1316,12 +1318,41 @@ class CVBot:
             session['from_main_flow'] = True
             
             # Send payment instructions
-            await context.bot.send_message(
-                chat_id=session['chat_id'],
-                text=self.get_prompt(session, 'payment_instructions'),
-                parse_mode="HTML"
-            )
-            return PAYMENT
+            # Send three price option messages (Premium, Popular, Standard).
+            # User will select one; selection flow will ask to upload screenshot and then use existing PAYMENT handling.
+
+            Premium = self.get_prompt(session, 'plan_premium_title')
+            Popular = self.get_prompt(session, 'plan_popular_title')
+            Standard = self.get_prompt(session, 'plan_standard_title')
+            btn_one = self.get_prompt(session, 'plan_premium_select')
+            btn_two = self.get_prompt(session, 'plan_popular_select')
+            btn_three = self.get_prompt(session, 'plan_standard_select')
+                        
+
+
+
+            price_options = [
+                (Premium, btn_one, "select_premium"),
+                (Popular, btn_two, "select_popular"),
+                (Standard, btn_three, "select_standard"),
+            ]
+
+            session['plan_message_ids'] = {}
+            for title, button, callback in price_options:
+                msg = await context.bot.send_message(
+                    chat_id=session['chat_id'],
+                    text=title,
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton(f"{button}", callback_data=callback)]]
+                    )
+                )
+                # map callback -> message_id
+                session['plan_message_ids'][callback] = msg.message_id
+
+            # Keep conversation in CONFIRM_ORDER until user selects/upload screenshot
+            return CONFIRM_ORDER
+
         elif query.data == "edit_no":
             logger.info(f"Edit button clicked by user {telegram_id}, restarting data entry from first name")
             # Reset session data but preserve language and chat_id
@@ -1347,6 +1378,77 @@ class CVBot:
             }
             await query.edit_message_text(self.get_prompt(self.user_sessions[telegram_id], 'first_name'))
             return COLLECT_PERSONAL_INFO
+
+
+    async def select_price(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle plan selection button clicks (Select Premium/Popular/Standard)"""
+        query = update.callback_query
+        await query.answer()
+        telegram_id = str(query.from_user.id)
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = query.message.chat_id
+        
+        # determine plan and price
+        plan = query.data.split("_", 1)[1]  # 'premium' | 'popular' | 'standard'
+        price_map = {"premium": "350", "popular": "199", "standard": "90"}
+        price = price_map.get(plan, "199")
+        
+        # store tentative selection in session (final assignment on admin approval)
+        session['selected_order_type'] = plan
+        session['selected_order_price'] = price
+
+        # Prefer plan-specific instruction key if present, otherwise format generic payment_instructions with price
+        instruction_key = f"payment_instruction_{plan}"
+        try:
+            instruction_text = self.get_prompt(session, instruction_key)
+        except KeyError:
+            instruction_text = self.get_prompt(session, 'payment_instructions').format(price=price)
+
+        upload_button_label = self.get_prompt(session, 'upload_screenshot_button')
+        await query.edit_message_text(
+            text=instruction_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton(upload_button_label, callback_data=f"upload_{plan}")]]
+            )
+        )
+
+        # delete other plan messages so only the selected one (now edited) remains
+        try:
+            plan_messages = session.get('plan_message_ids', {})
+            # callback key for the clicked message (e.g. 'select_popular')
+            clicked_callback = f"select_{plan}"
+            for cb, msg_id in list(plan_messages.items()):
+                if cb == clicked_callback:
+                    # keep the clicked one
+                    continue
+                try:
+                    await context.bot.delete_message(chat_id=session['chat_id'], message_id=msg_id)
+                    logger.info(f"Deleted plan message {msg_id} (callback {cb}) for user {telegram_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete plan message {msg_id} (callback {cb}): {str(e)}")
+                # remove from stored mapping
+                plan_messages.pop(cb, None)
+            # keep only the clicked mapping
+            session['plan_message_ids'] = {clicked_callback: plan_messages.get(clicked_callback, query.message.message_id)}
+        except Exception as e:
+            logger.warning(f"Error cleaning up plan messages for user {telegram_id}: {str(e)}")
+        return CONFIRM_ORDER
+
+    async def upload_screenshot_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle Upload screenshot inline button — prompt user to upload and switch to PAYMENT state."""
+        query = update.callback_query
+        await query.answer()
+        telegram_id = str(query.from_user.id)
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = query.message.chat_id
+        
+        plan = query.data.split("_", 1)[1]
+        session['selected_order_type'] = plan  # ensure plan stored
+        # Ask user to upload screenshot and move to PAYMENT state (existing payment handler will forward to private channel)
+        await query.edit_message_text(self.get_prompt(session, 'payment_screenshot_upload'))
+        return PAYMENT
+
 
     async def edit_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle request to edit specific sections of information"""
@@ -1485,10 +1587,13 @@ class CVBot:
                 # Check if this is a retry (not from main flow)
                 retry_text = " (RETRY)" if session.get('order_id') and not session.get('from_main_flow', False) else ""
                 
+                order_type_label = session.get('selected_order_type', 'standard').capitalize() if session else 'Standard'
+                order_type_line = f"\nOrder Type: {order_type_label}"
+
                 await context.bot.send_photo(
                     chat_id=private_channel_id,
                     photo=photo.file_id,
-                    caption=f"💳 Payment Screenshot Received{retry_text}\n\n{user_info}",
+                    caption=f"💳 Payment Screenshot Received{retry_text}{order_type_line}\n\n{user_info}",
                     reply_markup=reply_markup
                 )
                 logger.info(f"Payment screenshot forwarded to private channel for user {telegram_id}, order {session['order_id']}")
@@ -1511,16 +1616,24 @@ class CVBot:
                 
                 # Check if this is a retry (not from main flow)
                 retry_text = " (RETRY)" if session.get('order_id') and not session.get('from_main_flow', False) else ""
+
+                order_type_label = session.get('selected_order_type', 'standard').capitalize() if session else 'Standard'
+                order_type_line = f"\nOrder Type: {order_type_label}"
                 
                 await context.bot.send_document(
                     chat_id=private_channel_id,
                     document=document.file_id,
-                    caption=f"💳 Payment Document Received{retry_text}\n\n{user_info}",
+                    caption=f"💳 Payment Document Received{retry_text}{order_type_line}\n\n{user_info}",
                     reply_markup=reply_markup
                 )
                 logger.info(f"Payment document forwarded to private channel for user {telegram_id}, order {session['order_id']}")
             else:
-                await update.message.reply_text(self.get_prompt(session, 'payment_instructions'), parse_mode="HTML")
+                price = session.get('selected_order_price') or session.get('selected_order_price', '199')
+                try:
+                    instruction = self.get_prompt(session, 'payment_instructions').format(price=price)
+                except Exception:
+                    instruction = self.get_prompt(session, 'payment_instructions')
+                await update.message.reply_text(instruction, parse_mode="HTML")
                 return PAYMENT
             
             order = Order.get_by_id(session['order_id'])
@@ -1566,6 +1679,12 @@ class CVBot:
             if action == "approve":
                 try:
                     order.approve_payment()
+                    # set order type from session if present
+                    session = self.get_user_session(order.telegramUserId)
+                    chosen_type = session.get('selected_order_type')
+                    if chosen_type:
+                        order.orderType = chosen_type
+                        logger.info(f"Setting order {order_id} type to {chosen_type} via admin reply")
                     await context.bot.send_message(
                         chat_id=session['chat_id'],
                         text=self.get_prompt(session, 'payment_verified')
@@ -1798,6 +1917,13 @@ class CVBot:
                     session['notified'] = True
             elif reply_text.startswith('reject:'):
                 reason = reply_text[7:].strip() or 'No reason provided'
+
+                session = self.get_user_session(order.telegramUserId)
+                chosen_type = session.get('selected_order_type')
+                if chosen_type:
+                    order.orderType = chosen_type
+                    logger.info(f"Setting order {order_id} type to {chosen_type} via admin reply (rejected)")
+
                 order.reject_payment(reason)
                 logger.info(f"Order {order_id} rejected: paymentVerified={order.paymentVerified}, status={order.status}, statusDetails={order.statusDetails}")
                 if not session.get('notified', False):
