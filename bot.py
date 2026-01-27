@@ -594,7 +594,6 @@ class CVBot:
         
         
         await update.message.reply_text(
-            self.get_prompt(session, 'select_language'),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("English", callback_data="lang_en")],
                 [InlineKeyboardButton("አማርኛ", callback_data="lang_am")]
