@@ -359,6 +359,7 @@ class Order(BaseFirestoreModel):
         """Approve payment and update status to verified"""
         self.paymentVerified = True
         self.update_status('verified', status_details='Payment approved')
+        self.process_referral_commission(order, context)
     
     def reject_payment(self, reason: str = ''):
         """Reject payment and update status"""
