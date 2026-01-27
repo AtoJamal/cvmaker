@@ -592,10 +592,6 @@ class CVBot:
                         )
                     except: pass
         
-
-        telegram_id = str(user.id)
-        session = self.get_user_session(telegram_id)
-        session['chat_id'] = update.effective_chat.id
         
         await update.message.reply_text(
             self.get_prompt(session, 'select_language'),
