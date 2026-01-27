@@ -379,60 +379,107 @@ class Order(BaseFirestoreModel):
         """Mark order as delivered"""
         self.update_status('delivered')
 class Candidate(BaseFirestoreModel):
-    """Candidate model corresponding to 'candidates' collection"""
-    
+    collection_name = 'candidates'
+
     def __init__(self, **kwargs):
-        self.uid = kwargs.get('uid', '')  # Firebase Auth UID
-        self.firstName = kwargs.get('firstName', '')
-        self.middleName = kwargs.get('middleName', '')
-        self.lastName = kwargs.get('lastName', '')
-        self.phoneNumber = kwargs.get('phoneNumber', '')
-        self.emailAddress = kwargs.get('emailAddress', '')
-        self.linkedinProfile = kwargs.get('linkedinProfile', '')
-        self.city = kwargs.get('city', '')
-        self.country = kwargs.get('country', '')
-        self.profileUrl = kwargs.get('profileUrl', '')
-        self.availability = kwargs.get('availability', '')
-        self.lastUpdatedAt = kwargs.get('lastUpdatedAt', timezone.now())
-        self.telegramUserId = kwargs.get('telegramUserId', '')
         super().__init__(**kwargs)
-    
-    def save(self):
-        """Save candidate to Firestore"""
-        db = firestore.client()
-        
-        # Ensure we have a UID before saving
-        if not self.uid:
-            self.uid = str(uuid.uuid4())  # Generate a new UUID if none exists
-        
-        doc_ref = db.collection('candidates').document(self.uid)
-        doc_ref.set(self.to_dict())
-        return self
-    
+        self.uid = kwargs.get('uid')
+        self.telegramUserId = kwargs.get('telegramUserId')
+        self.telegramFirstName = kwargs.get('telegramFirstName')
+        self.telegramLastName = kwargs.get('telegramLastName')
+        self.telegramUsername = kwargs.get('telegramUsername')
+        self.firstName = kwargs.get('firstName')
+        self.middleName = kwargs.get('middleName')
+        self.lastName = kwargs.get('lastName')
+        self.emailAddress = kwargs.get('emailAddress')
+        self.phoneNumber = kwargs.get('phoneNumber')
+        self.linkedinProfile = kwargs.get('linkedinProfile')
+        self.location = kwargs.get('location')
+        self.languageCode = kwargs.get('languageCode', 'en')
+        self.referredBy = kwargs.get('referredBy') # New field for tracking referrals
+        self.lastUpdatedAt = kwargs.get('lastUpdatedAt', datetime.now())
+
     @classmethod
     def get_by_uid(cls, uid: str):
-        """Get candidate by UID"""
         db = firestore.client()
-        doc_ref = db.collection('candidates').document(uid)
+        doc_ref = db.collection(cls.collection_name).document(uid)
         doc = doc_ref.get()
         if doc.exists:
-            return cls.from_dict(doc.to_dict())
+            data = doc.to_dict()
+            data['uid'] = doc.id
+            return cls(**data)
         return None
-    
-    @classmethod
-    def get_by_telegram_user_id(cls, telegram_user_id: str):
-        """Get candidate by Telegram user ID"""
-        db = firestore.client()
-        query = db.collection('candidates').where(filter=FieldFilter('telegramUserId', '==', telegram_user_id)).limit(1)
-        docs = query.stream()
-        for doc in docs:
-            return cls.from_dict(doc.to_dict())
-        return None
-    def get_full_name(self) -> str:
-        """Get candidate's full name"""
-        parts = [self.firstName, self.middleName, self.lastName]
-        return ' '.join(filter(None, parts))
 
+    @classmethod
+    def get_by_telegram_id(cls, telegram_user_id: str):
+        db = firestore.client()
+        docs = db.collection(cls.collection_name).where(filter=FieldFilter('telegramUserId', '==', str(telegram_user_id))).limit(1).stream()
+        for doc in docs:
+            data = doc.to_dict()
+            data['uid'] = doc.id
+            return cls(**data)
+        return None
+
+    def save(self):
+        db = firestore.client()
+        data = self.to_dict()
+        data['lastUpdatedAt'] = datetime.now()
+        if not self.uid:
+            self.uid = str(uuid.uuid4())
+            data['uid'] = self.uid
+        db.collection(self.collection_name).document(self.uid).set(data)
+        return self.uid
+
+class Referral(BaseFirestoreModel):
+    collection_name = 'referrals'
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.telegramUserId = kwargs.get('telegramUserId')
+        self.referralLink = kwargs.get('referralLink')
+        self.clicks = kwargs.get('clicks', 0)
+        self.orders = kwargs.get('orders', 0)
+        self.balance = kwargs.get('balance', 0.0)
+        self.withdrawStatus = kwargs.get('withdrawStatus', 'none') # none, pending, frozen
+        self.paymentOption = kwargs.get('paymentOption') # telebirr, CBE
+        self.telebirrPhoneNumber = kwargs.get('telebirrPhoneNumber')
+        self.telebirrHolder = kwargs.get('telebirrHolder')
+        self.CBENumber = kwargs.get('CBENumber')
+        self.CBEHolder = kwargs.get('CBEHolder')
+
+    @classmethod
+    def get_by_telegram_id(cls, telegram_user_id):
+        db = firestore.client()
+        docs = db.collection(cls.collection_name).where(filter=FieldFilter('telegramUserId', '==', str(telegram_user_id))).limit(1).stream()
+        for doc in docs:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            return cls(**data)
+        return None
+
+    @classmethod
+    def create(cls, telegram_user_id, bot_username):
+        db = firestore.client()
+        link = f"https://t.me/{bot_username}?start=ref_{telegram_user_id}"
+        
+        data = {
+            'telegramUserId': str(telegram_user_id),
+            'referralLink': link,
+            'clicks': 0,
+            'orders': 0,
+            'balance': 0.0,
+            'withdrawStatus': 'none',
+            'created_at': datetime.now(),
+            'updated_at': datetime.now()
+        }
+        db.collection(cls.collection_name).document(str(telegram_user_id)).set(data)
+        return cls(**data)
+
+    def save(self):
+        db = firestore.client()
+        data = self.to_dict()
+        data['updated_at'] = datetime.now()
+        db.collection(self.collection_name).document(str(self.telegramUserId)).set(data)
 
 # Subcollection Models
 class CareerObjective(BaseFirestoreModel):
