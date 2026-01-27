@@ -29,6 +29,7 @@ from mainapp.models import (
     Project,
     Language,
     OtherActivity,
+    Referral,
 )
 import uuid
 import firebase_admin
@@ -113,6 +114,8 @@ logging.basicConfig(
     PAYMENT
 ) = range(15)
 
+WITHDRAW_METHOD, TELEBIRR_PHONE, TELEBIRR_HOLDER, CBE_NUMBER, CBE_HOLDER = range(100, 105)
+
 class CVBot:
     def __init__(self, token: str):
         # Configure HTTPXRequest with supported parameters
@@ -132,7 +135,208 @@ class CVBot:
         logger.info("🔄 Building Application instance")
         logger.info("🔄 Setting up handlers")
         self.setup_handlers()
+        self.add_referral_handlers()
         logger.info("✅ CVBot initialized successfully") 
+
+    def add_referral_handlers(self):
+        # Command Handler
+        self.application.add_handler(CommandHandler("referral", self.referral_command))
+        
+        # Callback Queries
+        self.application.add_handler(CallbackQueryHandler(self.handle_referral_refresh, pattern="^ref_refresh$"))
+        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_init, pattern="^ref_withdraw$"))
+        
+        # Admin Action Handlers
+        self.application.add_handler(CallbackQueryHandler(self.admin_approve_withdrawal, pattern="^wd_approve_"))
+        self.application.add_handler(CallbackQueryHandler(self.admin_reject_withdrawal, pattern="^wd_reject_"))
+
+        # Withdrawal Conversation
+        withdraw_conv = ConversationHandler(
+            entry_points=[CallbackQueryHandler(self.handle_payment_method_select, pattern="^pay_method_")],
+            states={
+                TELEBIRR_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.save_telebirr_phone)],
+                TELEBIRR_HOLDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.save_telebirr_holder)],
+                CBE_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.save_cbe_number)],
+                CBE_HOLDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.save_cbe_holder)],
+            },
+            fallbacks=[CommandHandler("cancel", self.referral_command)],
+            allow_reentry=True
+        )
+        self.application.add_handler(withdraw_conv)
+
+    async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        ref_data = Referral.get_by_telegram_id(user.id)
+        
+        if not ref_data:
+            bot_info = await context.bot.get_me()
+            ref_data = Referral.create(user.id, bot_info.username)
+
+        await self.send_referral_summary(update, context, ref_data)
+
+    async def send_referral_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ref_data: Referral, edit=False):
+        text = (
+            f"<b>Referral Dashboard</b>\n\n"
+            f"🔗 <b>Referral Link:</b> {ref_data.referralLink}\n"
+            f"🖱 <b>Clicks:</b> {ref_data.clicks}\n"
+            f"📦 <b>Orders:</b> {ref_data.orders}\n"
+            f"💰 <b>Balance:</b> {ref_data.balance} ETB\n"
+            f"📝 <b>Status:</b> {ref_data.withdrawStatus.capitalize()}"
+        )
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("🔄 Refresh", callback_data="ref_refresh"),
+                InlineKeyboardButton("💸 Withdraw", callback_data="ref_withdraw")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if edit and update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup, parse_mode='HTML')
+
+    async def handle_referral_refresh(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer("Updating...")
+        ref_data = Referral.get_by_telegram_id(update.effective_user.id)
+        await self.send_referral_summary(update, context, ref_data, edit=True)
+
+    async def process_referral_commission(self, order: Order, context: ContextTypes.DEFAULT_TYPE):
+        # Assuming you find the candidate associated with this order
+        candidate = Candidate.get_by_uid(order.candidateId)
+        # You'll need to store who referred this candidate initially. 
+        # Recommendation: Add 'referredBy' field to Candidate model when they first join via ref link.
+        referrer_id = getattr(candidate, 'referredBy', None)
+        
+        if referrer_id and str(referrer_id) != str(candidate.telegramUserId):
+            ref_obj = Referral.get_by_telegram_id(referrer_id)
+            if ref_obj:
+                price = float(order.totalAmount)
+                commission = price * 0.5
+                ref_obj.orders += 1
+                ref_obj.balance += commission
+                ref_obj.save()
+                
+                try:
+                    await context.bot.send_message(
+                        chat_id=referrer_id,
+                        text=f"💰 Commission Received!\n@{candidate.telegramFirstName} placed an order. +{commission} ETB added to balance."
+                    )
+                except: pass
+
+    # --- Withdrawal Flow ---
+
+    async def handle_withdraw_init(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = update.effective_user.id
+        ref_data = Referral.get_by_telegram_id(user_id)
+
+        if ref_data.balance <= 0:
+            await query.answer("Your balance is 0 ETB.", show_alert=True)
+            return
+
+        if ref_data.withdrawStatus == "pending":
+            await query.answer("You already have a pending withdrawal.", show_alert=True)
+            return
+
+        # Check if payment method is set
+        if not ref_data.paymentOption:
+            keyboard = [
+                [InlineKeyboardButton("Telebirr", callback_data="pay_method_telebirr")],
+                [InlineKeyboardButton("CBE", callback_data="pay_method_cbe")]
+            ]
+            await query.edit_message_text("Choose payment method:", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await self.submit_withdrawal_to_admin(update, context, ref_data)
+
+    async def handle_payment_method_select(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        method = query.data.replace("pay_method_", "")
+        context.user_data['temp_pay_method'] = method
+        
+        if method == "telebirr":
+            await query.edit_message_text("Please enter your Telebirr phone number:")
+            return TELEBIRR_PHONE
+        else:
+            await query.edit_message_text("Please enter your CBE Account Number:")
+            return CBE_NUMBER
+
+    async def save_telebirr_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data['phone'] = update.message.text
+        await update.message.reply_text("Please enter the Telebirr Account Holder Name:")
+        return TELEBIRR_HOLDER
+
+    async def save_telebirr_holder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        ref_data = Referral.get_by_telegram_id(update.effective_user.id)
+        ref_data.paymentOption = "telebirr"
+        ref_data.telebirrPhoneNumber = context.user_data['phone']
+        ref_data.telebirrHolder = update.message.text
+        ref_data.save()
+        await self.submit_withdrawal_to_admin(update, context, ref_data)
+        return ConversationHandler.END
+
+    async def save_cbe_number(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data['cbe_no'] = update.message.text
+        await update.message.reply_text("Please enter the CBE Account Holder Name:")
+        return CBE_HOLDER
+
+    async def save_cbe_holder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        ref_data = Referral.get_by_telegram_id(update.effective_user.id)
+        ref_data.paymentOption = "cbe"
+        ref_data.CBENumber = context.user_data['cbe_no']
+        ref_data.CBEHolder = update.message.text
+        ref_data.save()
+        await self.submit_withdrawal_to_admin(update, context, ref_data)
+        return ConversationHandler.END
+
+    async def submit_withdrawal_to_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE, ref_data: Referral):
+        ref_data.withdrawStatus = "pending"
+        ref_data.save()
+
+        # Notify User
+        msg = f"Withdrawal process complete.\nYou will receive {ref_data.balance} ETB"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg)
+        else:
+            await update.message.reply_text(msg)
+
+        # Notify Admin
+        payment_info = f"Telebirr: {ref_data.telebirrPhoneNumber}" if ref_data.paymentOption == "telebirr" else f"CBE: {ref_data.CBENumber}"
+        admin_text = (
+            f"🚨 <b>New Withdrawal Request</b>\n\n"
+            f"User: @{update.effective_user.username or update.effective_user.id}\n"
+            f"Balance: {ref_data.balance} ETB\n"
+            f"Payment: {payment_info}\n"
+            f"Holder: {ref_data.telebirrHolder or ref_data.CBEHolder}"
+        )
+        
+        admin_kb = [[
+            InlineKeyboardButton("✅ Accept", callback_data=f"wd_approve_{ref_data.telegramUserId}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"wd_reject_{ref_data.telegramUserId}")
+        ]]
+        
+        await context.bot.send_message(chat_id=private_channel_id, text=admin_text, reply_markup=InlineKeyboardMarkup(admin_kb), parse_mode='HTML')
+
+    async def admin_approve_withdrawal(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        target_uid = update.callback_query.data.replace("wd_approve_", "")
+        ref_data = Referral.get_by_telegram_id(target_uid)
+        if ref_data:
+            ref_data.balance = 0
+            ref_data.withdrawStatus = "none"
+            ref_data.save()
+            await update.callback_query.edit_message_text(update.callback_query.message.text + "\n\n✅ APPROVED")
+            await context.bot.send_message(chat_id=target_uid, text="Payment sent to your account. Enjoy!")
+
+    async def admin_reject_withdrawal(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        target_uid = update.callback_query.data.replace("wd_reject_", "")
+        ref_data = Referral.get_by_telegram_id(target_uid)
+        if ref_data:
+            ref_data.withdrawStatus = "frozen"
+            ref_data.save()
+            await update.callback_query.edit_message_text(update.callback_query.message.text + "\n\n❌ REJECTED")
+            await context.bot.send_message(chat_id=target_uid, text="Your withdrawal request was rejected. Contact support.")
 
 
     async def post_init(self, application: Application) -> None:
@@ -372,6 +576,23 @@ class CVBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Send welcome message and prompt for language selection"""
         user = update.effective_user
+        if context.args and context.args[0].startswith("ref_"):
+            referrer_id = context.args[0].replace("ref_", "")
+            # Logic: Only count if user is brand new (not in Candidate DB)
+            existing_candidate = Candidate.get_by_telegram_id(update.effective_user.id)
+            if not existing_candidate and str(referrer_id) != str(update.effective_user.id):
+                ref_obj = Referral.get_by_telegram_id(referrer_id)
+                if ref_obj:
+                    ref_obj.clicks += 1
+                    ref_obj.save()
+                    try:
+                        await context.bot.send_message(
+                            chat_id=referrer_id, 
+                            text=f"👤 @{update.effective_user.username or 'User'} clicked your referral link!"
+                        )
+                    except: pass
+        
+
         telegram_id = str(user.id)
         session = self.get_user_session(telegram_id)
         session['chat_id'] = update.effective_chat.id
@@ -384,6 +605,8 @@ class CVBot:
             ])
         )
         return SELECT_LANGUAGE
+
+    
 
     async def select_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle language selection"""
