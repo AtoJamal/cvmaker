@@ -232,19 +232,7 @@ class CVBot:
             per_message=False
         )
 
-        withdraw_conv = ConversationHandler(
-            entry_points=[CallbackQueryHandler(self.handle_referral_withdraw, pattern="^ref_withdraw$")],
-            states={
-                COLLECT_PAYMENT_METHOD: [
-                    CallbackQueryHandler(self.handle_payment_method_selection, pattern="^set_pm_")
-                ],
-                COLLECT_PAYMENT_DETAILS: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.collect_withdrawal_details)
-                ]
-            },
-            fallbacks=[CommandHandler("cancel", self.cancel)],
-            per_message=False
-        )
+        
         
         payment_retry_handler = ConversationHandler(
         entry_points=[CommandHandler("payment", self.handle_payment_command)],  # Fixed method name
@@ -260,21 +248,27 @@ class CVBot:
         per_message=False
     )
         self.application.add_handler(CommandHandler("referral", self.referral_command))
-
         # Withdrawal flow handlers
         self.application.add_handler(CallbackQueryHandler(self.handle_referral_refresh, pattern="^ref_refresh$"))
 
-
+        # Dedicated conversation for the withdraw flow so text replies (phone/holder) are captured reliably
+        withdraw_conv = ConversationHandler(
+            entry_points=[CallbackQueryHandler(self.handle_referral_withdraw, pattern="^ref_withdraw$")],
+            states={
+                COLLECT_PAYMENT_METHOD: [
+                    CallbackQueryHandler(self.handle_payment_method_selection, pattern="^set_pm_")
+                ],
+                COLLECT_PAYMENT_DETAILS: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.collect_withdrawal_details)
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel)],
+            per_message=False
+        )
         self.application.add_handler(withdraw_conv)
 
         # Admin referral actions
         self.application.add_handler(CallbackQueryHandler(self.handle_admin_withdraw_action, pattern="^admin_wd_"))
-
-        # New withdraw handlers
-        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_option, pattern="^withdraw_"))
-        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_confirm, pattern="^confirm_withdraw$"))
-        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_cancel, pattern="^cancel_withdraw$"))
-
         self.application.add_handler(conv_handler)
         self.application.add_handler(payment_retry_handler)
         self.application.add_handler(CommandHandler("help", self.help_command))
@@ -1034,7 +1028,7 @@ class CVBot:
                 return COLLECT_PAYMENT_DETAILS
             else:
                 # Confirm withdrawal
-                await query.edit_message_text(f"Confirm withdrawal of {affiliate.balance} ETB to your Telebirr number ending with {affiliate.telebirrPhoneNumber[-4:]}?", reply_markup=InlineKeyboardMarkup([
+                await query.edit_message_text(f"Confirm withdrawal of {affiliate.balance} ETB to your Telebirr number ending with {(affiliate.telebirrPhoneNumber[-4:] if getattr(affiliate, 'telebirrPhoneNumber', None) else '****')}?", reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ Confirm", callback_data="confirm_withdraw"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw")]
                 ]))
                 return COLLECT_PAYMENT_DETAILS
@@ -1044,7 +1038,7 @@ class CVBot:
                 return COLLECT_PAYMENT_DETAILS
             else:
                 # Confirm withdrawal
-                await query.edit_message_text(f"Confirm withdrawal of {affiliate.balance} ETB to your CBE account ending with {affiliate.CBENumber[-4:]}?", reply_markup=InlineKeyboardMarkup([
+                await query.edit_message_text(f"Confirm withdrawal of {affiliate.balance} ETB to your CBE account ending with {(affiliate.CBENumber[-4:] if getattr(affiliate, 'CBENumber', None) else '****')}?", reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ Confirm", callback_data="confirm_withdraw"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw")]
                 ]))
                 return COLLECT_PAYMENT_DETAILS
