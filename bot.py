@@ -1384,11 +1384,21 @@ class CVBot:
                     telegramUserId=telegram_id,
                     **session['candidate_data']
                 )
+                # Persist referral source if present in session (avoid self-referral)
+                ref_by = session.get('referredBy')
+                if ref_by and str(ref_by) != str(telegram_id):
+                    candidate.referredBy = str(ref_by)
+                    logger.info(f"Setting referredBy={ref_by} for new candidate {telegram_id}")
                 candidate.save()
                 logger.info(f"Created new candidate {candidate.uid} for telegram_id {telegram_id}")
             else:
                 for key, value in session['candidate_data'].items():
                     setattr(candidate, key, value)
+                # If a referral exists in session and the candidate doesn't already have one, persist it
+                ref_by = session.get('referredBy')
+                if ref_by and not getattr(candidate, 'referredBy', None) and str(ref_by) != str(telegram_id):
+                    candidate.referredBy = str(ref_by)
+                    logger.info(f"Setting referredBy={ref_by} for existing candidate {candidate.uid}")
                 candidate.save()
                 logger.info(f"Updated candidate {candidate.uid} for telegram_id {telegram_id}")
             
