@@ -409,7 +409,16 @@ class Referral(BaseFirestoreModel):
 
     def save(self):
         db = firestore.client()
-        db.collection('referrals').document(self.telegramUserId).set(self.to_dict())
+        # Build dict and ensure payment-related keys exist (explicit nulls where appropriate)
+        data = self.to_dict()
+        # Ensure explicit keys so Firestore stores nulls instead of omitting fields
+        for k in ['telebirrPhoneNumber','telebirrHolder','CBENumber','CBEHolder','paymentOption','withdrawStatus']:
+            if k not in data:
+                if k == 'withdrawStatus':
+                    data[k] = getattr(self, 'withdrawStatus', 'none')
+                else:
+                    data[k] = getattr(self, k, None)
+        db.collection('referrals').document(self.telegramUserId).set(data)
         return self
 
     @classmethod
