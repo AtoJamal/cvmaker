@@ -1964,7 +1964,9 @@ class CVBot:
 
         except Exception as e:
             logger.error(f"Critical error in handle_admin_response: {str(e)}")
-            await query.message.reply_text("An error occurred while processing the admin response.")    async def payment_retry_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+            await query.message.reply_text("An error occurred while processing the admin response.")
+            
+    async def payment_retry_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /payment command for retrying rejected payments"""
         user = update.effective_user
         telegram_id = str(user.id)
