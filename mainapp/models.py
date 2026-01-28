@@ -33,19 +33,10 @@ class BaseFirestoreModel:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):
-        """Create Order instance from dictionary"""
-        return cls(
-            id=data.get('id'),
-            candidateId=data.get('candidateId'),
-            telegramUserId=data.get('telegramUserId'),
-            status=data.get('status', 'awaiting_payment'),
-            orderType=data.get('orderType', ''),
-            paymentScreenshotUrl=data.get('paymentScreenshotUrl'),
-            paymentVerified=data.get('paymentVerified', False),
-            statusDetails=data.get('statusDetails'),
-            createdAt=data.get('createdAt'),
-            updatedAt=data.get('updatedAt')
-        )
+        """A generic version that works for ALL models"""
+        if not data:
+            return None
+        return cls(**data)
     
     def validate_required_fields(self, required_fields: list):
         """Validate that required fields are present"""
@@ -296,6 +287,24 @@ class Order(BaseFirestoreModel):
         doc_ref = db.collection('orders').document(self.id)
         doc_ref.set(self.to_dict())
         return self
+
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]):
+        """Create Order instance from dictionary"""
+        # We map Firestore keys to Order attributes here
+        return cls(
+            id=data.get('id'),
+            candidateId=data.get('candidateId'),
+            telegramUserId=data.get('telegramUserId'),
+            orderType=data.get('orderType', ''),  # <--- MUST BE HERE
+            status=data.get('status', 'awaiting_payment'),
+            paymentScreenshotUrl=data.get('paymentScreenshotUrl'),
+            paymentVerified=data.get('paymentVerified', False),
+            statusDetails=data.get('statusDetails'),
+            createdAt=data.get('createdAt'),
+            updatedAt=data.get('updatedAt')
+        )
 
     
     @classmethod
