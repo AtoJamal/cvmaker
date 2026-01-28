@@ -39,6 +39,7 @@ class BaseFirestoreModel:
             candidateId=data.get('candidateId'),
             telegramUserId=data.get('telegramUserId'),
             status=data.get('status', 'awaiting_payment'),
+            orderType=data.get('orderType', ''),
             paymentScreenshotUrl=data.get('paymentScreenshotUrl'),
             paymentVerified=data.get('paymentVerified', False),
             statusDetails=data.get('statusDetails'),
@@ -282,6 +283,7 @@ class Order(BaseFirestoreModel):
         self.notes = kwargs.get('notes', '')
         self.lastStatusUpdate = kwargs.get('lastStatusUpdate', timezone.now())
         self.telegramUserId = kwargs.get('telegramUserId', '')
+        self.orderType = kwargs.get('orderType', '')
     
     def save(self):
         """Save order to Firestore"""
@@ -294,6 +296,7 @@ class Order(BaseFirestoreModel):
         doc_ref = db.collection('orders').document(self.id)
         doc_ref.set(self.to_dict())
         return self
+
     
     @classmethod
     def get_by_id(cls, order_id: str):
