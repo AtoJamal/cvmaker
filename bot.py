@@ -917,6 +917,85 @@ class CVBot:
             )
             return COLLECT_PROFESSIONAL_INFO
 
+    async def handle_referral_refresh(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer("Refreshing...")
+        
+        telegram_id = str(query.from_user.id)
+        affiliate = Referral.get_by_telegram_id(telegram_id)
+        
+        if affiliate:
+            # Delete old message and send updated one as per spec
+            await query.message.delete()
+            await self.send_referral_summary(query.message, affiliate)
+
+    async def handle_payment_method_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        method = query.data.replace("set_pm_", "")
+        telegram_id = str(query.from_user.id)
+        
+        affiliate = Referral.get_by_telegram_id(telegram_id)
+        affiliate.paymentOption = method
+        affiliate.save()
+        
+        prompt = "Enter your Telebirr phone number:" if method == "telebirr" else "Enter your CBE account number:"
+        await query.edit_message_text(prompt)
+        return COLLECT_PAYMENT_DETAILS
+
+    async def collect_withdrawal_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        telegram_id = str(update.effective_user.id)
+        text = update.message.text
+        affiliate = Referral.get_by_telegram_id(telegram_id)
+
+        # Logic for multi-step collection
+        if affiliate.paymentOption == "telebirr":
+            if not affiliate.telebirrPhoneNumber:
+                affiliate.telebirrPhoneNumber = text
+                affiliate.save()
+                await update.message.reply_text("Enter Telebirr account holder name:")
+                return COLLECT_PAYMENT_DETAILS
+            else:
+                affiliate.telebirrHolder = text
+                affiliate.withdrawStatus = "pending"
+                affiliate.save()
+        else: # CBE
+            if not affiliate.CBENumber:
+                affiliate.CBENumber = text
+                affiliate.save()
+                await update.message.reply_text("Enter CBE account holder name:")
+                return COLLECT_PAYMENT_DETAILS
+            else:
+                affiliate.CBEHolder = text
+                affiliate.withdrawStatus = "pending"
+                affiliate.save()
+
+        await self.submit_withdrawal_to_admin(update.message, affiliate, context)
+        return ConversationHandler.END
+
+    async def handle_admin_withdraw_action(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        data = query.data.split("_")
+        action = data[2] # accept or reject
+        target_uid = data[3]
+        
+        affiliate = Referral.get_by_telegram_id(target_uid)
+        if not affiliate:
+            await query.answer("User not found.")
+            return
+
+        if action == "accept":
+            affiliate.withdrawStatus = "none"
+            amount = affiliate.balance
+            affiliate.balance = 0
+            affiliate.save()
+            await query.edit_message_text(f"✅ Approved: {amount} ETB paid to {target_uid}")
+            await context.bot.send_message(chat_id=int(target_uid), text="✅ Your payment has been sent to your account!")
+        else:
+            affiliate.withdrawStatus = "frozen"
+            affiliate.save()
+            await query.edit_message_text(f"❌ Rejected withdrawal for {target_uid}")
+            await context.bot.send_message(chat_id=int(target_uid), text="❌ Your withdrawal request was rejected. Contact support.")
+
     async def handle_professional_info_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle the user's choice to add another work experience or continue"""
         query = update.callback_query
@@ -1756,10 +1835,7 @@ class CVBot:
             # Subsequent Withdrawals
             await self.submit_withdrawal_to_admin(query.message, affiliate, context)
 
-    async def collect_withdrawal_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # Logic to ask for phone/account number and name sequentially and save to Referral doc
-        # Set withdrawStatus = "pending" and call submit_withdrawal_to_admin
-        pass
+
 
     async def submit_withdrawal_to_admin(self, message, affiliate, context):
         payment_info = f"Telebirr: {affiliate.telebirrPhoneNumber}" if affiliate.paymentOption == "telebirr" else f"CBE: {affiliate.CBENumber}"
