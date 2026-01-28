@@ -29,6 +29,7 @@ from mainapp.models import (
     Project,
     Language,
     OtherActivity,
+    Referral,
 )
 
 
