@@ -255,6 +255,11 @@ class CVBot:
         # Admin referral actions
         self.application.add_handler(CallbackQueryHandler(self.handle_admin_withdraw_action, pattern="^admin_wd_"))
 
+        # New withdraw handlers
+        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_option, pattern="^withdraw_"))
+        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_confirm, pattern="^confirm_withdraw$"))
+        self.application.add_handler(CallbackQueryHandler(self.handle_withdraw_cancel, pattern="^cancel_withdraw$"))
+
         self.application.add_handler(conv_handler)
         self.application.add_handler(payment_retry_handler)
         self.application.add_handler(CommandHandler("help", self.help_command))
@@ -996,6 +1001,82 @@ class CVBot:
             affiliate.save()
             await query.edit_message_text(f"❌ Rejected withdrawal for {target_uid}")
             await context.bot.send_message(chat_id=int(target_uid), text="❌ Your withdrawal request was rejected. Contact support.")
+
+    async def handle_withdraw_option(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        
+        telegram_id = str(query.from_user.id)
+        session = self.get_user_session(telegram_id)
+        session['chat_id'] = query.message.chat_id
+        
+        option = query.data.split("_")[1]  # telebirr or cbe
+        affiliate = Referral.get_by_telegram_id(telegram_id)
+        
+        if option == "telebirr":
+            if not affiliate.telebirrPhoneNumber:
+                await query.edit_message_text("Please provide your Telebirr phone number:")
+                return COLLECT_PAYMENT_DETAILS
+            else:
+                # Confirm withdrawal
+                await query.edit_message_text(f"Confirm withdrawal of {affiliate.balance} ETB to your Telebirr number ending with {affiliate.telebirrPhoneNumber[-4:]}?", reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Confirm", callback_data="confirm_withdraw"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw")]
+                ]))
+                return COLLECT_PAYMENT_DETAILS
+        elif option == "cbe":
+            if not affiliate.CBENumber:
+                await query.edit_message_text("Please provide your CBE account number:")
+                return COLLECT_PAYMENT_DETAILS
+            else:
+                # Confirm withdrawal
+                await query.edit_message_text(f"Confirm withdrawal of {affiliate.balance} ETB to your CBE account ending with {affiliate.CBENumber[-4:]}?", reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Confirm", callback_data="confirm_withdraw"), InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw")]
+                ]))
+                return COLLECT_PAYMENT_DETAILS
+    async def send_withdrawal_confirmation(self, message_or_query, affiliate: Referral):
+        """Ask user to confirm withdrawing their current balance."""
+        balance = float(getattr(affiliate, "balance", 0) or 0)
+        method_label = "Telebirr" if getattr(affiliate, "paymentOption", None) == "telebirr" else "CBE"
+        txt = f"You are about to withdraw {balance:.2f} ETB\nPayment method: {method_label}\n\nDo you want to continue?"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Confirm Withdrawal", callback_data="confirm_withdraw")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw")]
+        ])
+
+        # `message_or_query` may be an Update.message or Query.message; handle both
+        if hasattr(message_or_query, "reply_text"):
+            await message_or_query.reply_text(txt, reply_markup=keyboard)
+        else:
+            # it's likely a CallbackQuery
+            await message_or_query.edit_message_text(txt, reply_markup=keyboard)
+
+    async def handle_withdraw_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        
+        telegram_id = str(query.from_user.id)
+        affiliate = Referral.get_by_telegram_id(telegram_id)
+        
+        if affiliate.withdrawStatus == "frozen":
+            await query.edit_message_text("Your withdrawal request was rejected. Contact support.")
+            return
+        
+        # Proceed with withdrawal logic
+        affiliate.withdrawStatus = "pending"
+        affiliate.save()
+        
+        await query.edit_message_text(f"Your withdrawal request of {affiliate.balance} ETB is being processed.")
+        await self.submit_withdrawal_to_admin(query.message, affiliate, context)
+
+    async def handle_withdraw_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        
+        telegram_id = str(query.from_user.id)
+        session = self.get_user_session(telegram_id)
+        
+        await query.edit_message_text("Withdrawal request cancelled.")
+        return START
 
     async def handle_professional_info_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle the user's choice to add another work experience or continue"""
