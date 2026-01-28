@@ -115,7 +115,7 @@ logging.basicConfig(
     PAYMENT,
     COLLECT_PAYMENT_METHOD,
     COLLECT_PAYMENT_DETAILS,
-) = range(15, 17)
+) = range(17)
 
 
 
