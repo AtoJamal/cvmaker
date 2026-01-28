@@ -231,6 +231,20 @@ class CVBot:
             fallbacks=[CommandHandler("cancel", self.cancel)],
             per_message=False
         )
+
+        withdraw_conv = ConversationHandler(
+            entry_points=[CallbackQueryHandler(self.handle_referral_withdraw, pattern="^ref_withdraw$")],
+            states={
+                COLLECT_PAYMENT_METHOD: [
+                    CallbackQueryHandler(self.handle_payment_method_selection, pattern="^set_pm_")
+                ],
+                COLLECT_PAYMENT_DETAILS: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.collect_withdrawal_details)
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel)],
+            per_message=False
+        )
         
         payment_retry_handler = ConversationHandler(
         entry_points=[CommandHandler("payment", self.handle_payment_command)],  # Fixed method name
@@ -249,8 +263,9 @@ class CVBot:
 
         # Withdrawal flow handlers
         self.application.add_handler(CallbackQueryHandler(self.handle_referral_refresh, pattern="^ref_refresh$"))
-        self.application.add_handler(CallbackQueryHandler(self.handle_referral_withdraw, pattern="^ref_withdraw$"))
-        self.application.add_handler(CallbackQueryHandler(self.handle_payment_method_selection, pattern="^set_pm_"))
+
+
+        self.application.add_handler(withdraw_conv)
 
         # Admin referral actions
         self.application.add_handler(CallbackQueryHandler(self.handle_admin_withdraw_action, pattern="^admin_wd_"))
