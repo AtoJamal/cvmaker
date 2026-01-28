@@ -29,7 +29,6 @@ from mainapp.models import (
     Project,
     Language,
     OtherActivity,
-    Referral,
 )
 
 
@@ -1856,101 +1855,116 @@ class CVBot:
         await message.reply_text(f"Withdrawal process complete.\nYou will receive {affiliate.balance} ETB")
 
     async def handle_admin_response(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle admin approval/rejection responses"""
+        """Handle admin approval/rejection responses and process referral commissions"""
         query = update.callback_query
-
-        if query.data.startswith("approve_"):
-                order_id = query.data.split("_")[1]
-                order = Order.get_by_id(order_id)
-                if order:
-                    candidate = Candidate.get_by_uid(order.candidateId)
-                    if candidate and candidate.referredBy and candidate.referredBy != candidate.telegramUserId:
-                        affiliate = Referral.get_by_telegram_id(candidate.referredBy)
-                        if affiliate:
-                            commission = COMMISSIONS.get(order.statusDetails, 45.0) # Assuming plan stored in statusDetails
-                            affiliate.balance += commission
-                            affiliate.orders += 1
-                            affiliate.save()
-                            # Notify affiliate
-                            username = f"@{update.effective_user.username}" # (The buyer's username from context/order)
-                            await context.bot.send_message(
-                                chat_id=int(candidate.referredBy),
-                                text=f"💰 {username} placed an order with your referral link! You earned {commission} ETB."
-                            )
-
         await query.answer()
-        
+
         try:
-            action, telegram_id, order_id = query.data.split('_', 2)
-            
-            session = self.get_user_session(telegram_id)
-            if 'chat_id' not in session:
-                logger.error(f"No chat_id found for telegram_id {telegram_id} in session")
-                await query.message.reply_text("Error: User session not found.")
+            # 1. Parse Callback Data (Expected: action_telegramid_orderid)
+            parts = query.data.split('_', 2)
+            if len(parts) < 3:
+                logger.error(f"Invalid callback data format: {query.data}")
                 return
+                
+            action, telegram_id, order_id = parts
             
+            # 2. Fetch required models
             order = Order.get_by_id(order_id)
             if not order:
-                logger.error(f"Order {order_id} not found for telegram_id {telegram_id}")
-                await query.message.reply_text("Error: Order not found.")
+                logger.error(f"Order {order_id} not found.")
+                await query.message.reply_text("Error: Order not found in database.")
                 return
-            
+
+            candidate = Candidate.get_by_uid(order.candidateId)
+            session = self.get_user_session(telegram_id)
+
+            # --- [REFERRAL LOGIC BLOCK] ---
+            if action == "approve":
+                # Check if the user was referred and it's not a self-referral
+                if candidate and candidate.referredBy and str(candidate.referredBy) != str(telegram_id):
+                    affiliate = Referral.get_by_telegram_id(candidate.referredBy)
+                    if affiliate:
+                        # Determine commission based on order type (Standard/Popular/Premium)
+                        plan = (order.orderType or "standard").lower()
+                        commission = COMMISSIONS.get(plan, 45.0) # Fallback to 45.0 if plan unknown
+                        
+                        # Update Affiliate stats and balance
+                        affiliate.balance += commission
+                        affiliate.orders += 1
+                        affiliate.save()
+                        
+                        # Identify buyer for the notification
+                        buyer_identity = f"@{candidate.username}" if candidate.username else (candidate.fullName or "A referred user")
+
+                        try:
+                            await context.bot.send_message(
+                                chat_id=int(candidate.referredBy),
+                                text=(
+                                    f"💰 <b>Referral Commission Earned!</b>\n\n"
+                                    f"👤 <b>User:</b> {buyer_identity}\n"
+                                    f"📦 <b>Order Type:</b> {plan.capitalize()}\n"
+                                    f"💵 <b>Commission:</b> +{commission} ETB\n"
+                                    f"📈 <b>New Balance:</b> {affiliate.balance} ETB"
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to notify affiliate {candidate.referredBy}: {e}")
+            # --- [END REFERRAL LOGIC] ---
+
+            # 3. Process Order Status Update
             if action == "approve":
                 try:
                     order.approve_payment()
-                    # set order type from session if present
-                    session = self.get_user_session(order.telegramUserId)
+                    
+                    # Ensure order type is recorded from session if it was missing
                     chosen_type = session.get('selected_order_type')
-                    if chosen_type:
+                    if chosen_type and not order.orderType:
                         order.orderType = chosen_type
-                        logger.info(f"Setting order {order_id} type to {chosen_type} via admin reply")
-                    await context.bot.send_message(
-                        chat_id=session['chat_id'],
-                        text=self.get_prompt(session, 'payment_verified')
-                    )
+                        order.save()
+
+                    # Notify the Buyer
+                    if 'chat_id' in session:
+                        await context.bot.send_message(
+                            chat_id=session['chat_id'],
+                            text=self.get_prompt(session, 'payment_verified')
+                        )
+                    
+                    # Update the Admin message UI
                     await query.edit_message_caption(
-                        caption=f"{query.message.caption}\n\n✅ **APPROVED** by {query.from_user.first_name or 'Admin'}",
-                        reply_markup=None
+                        caption=f"{query.message.caption}\n\n✅ <b>APPROVED</b> by {query.from_user.first_name}",
+                        reply_markup=None,
+                        parse_mode="HTML"
                     )
-                    logger.info(f"Payment approved for user {telegram_id}, order {order_id} by admin {query.from_user.id}")
                     session['notified'] = True
                 except Exception as e:
-                    logger.error(f"Error sending approval message to user {telegram_id}: {str(e)}")
-                    await query.edit_message_caption(
-                        caption=f"{query.message.caption}\n\n✅ **APPROVED** by {query.from_user.first_name or 'Admin'} (Error sending notification to user)",
-                        reply_markup=None
-                    )
+                    logger.error(f"Error processing approval for {telegram_id}: {str(e)}")
+
             elif action == "reject":
                 try:
-                    reason = "No reason provided"
+                    reason = "The uploaded screenshot was invalid or the payment was not received."
                     order.reject_payment(reason)
-                    await context.bot.send_message(
-                        chat_id=session['chat_id'],
-                        text=self.get_prompt(session, 'payment_rejected').format(reason=reason)
-                    )
+                    
+                    # Notify the Buyer
+                    if 'chat_id' in session:
+                        await context.bot.send_message(
+                            chat_id=session['chat_id'],
+                            text=self.get_prompt(session, 'payment_rejected').format(reason=reason)
+                        )
+                    
+                    # Update the Admin message UI
                     await query.edit_message_caption(
-                        caption=f"{query.message.caption}\n\n❌ **REJECTED** by {query.from_user.first_name or 'Admin'}",
-                        reply_markup=None
+                        caption=f"{query.message.caption}\n\n❌ <b>REJECTED</b> by {query.from_user.first_name}",
+                        reply_markup=None,
+                        parse_mode="HTML"
                     )
-                    logger.info(f"Payment rejected for user {telegram_id}, order {order_id} by admin {query.from_user.id}")
                     session['notified'] = True
                 except Exception as e:
-                    logger.error(f"Error sending rejection message to user {telegram_id}: {str(e)}")
-                    await query.edit_message_caption(
-                        caption=f"{query.message.caption}\n\n❌ **REJECTED** by {query.from_user.first_name or 'Admin'} (Error sending notification to user)",
-                        reply_markup=None
-                    )
-        except ValueError:
-            logger.error(f"Invalid callback data format: {query.data}")
-            await query.edit_message_caption(
-                caption=f"{query.message.caption}\n\n⚠️ **ERROR**: Invalid callback data",
-                reply_markup=None
-            )
-        except Exception as e:
-            logger.error(f"Error handling admin response: {str(e)}")
-            await query.message.reply_text("An error occurred while processing your response.")
+                    logger.error(f"Error processing rejection for {telegram_id}: {str(e)}")
 
-    async def payment_retry_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        except Exception as e:
+            logger.error(f"Critical error in handle_admin_response: {str(e)}")
+            await query.message.reply_text("An error occurred while processing the admin response.")    async def payment_retry_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /payment command for retrying rejected payments"""
         user = update.effective_user
         telegram_id = str(user.id)
