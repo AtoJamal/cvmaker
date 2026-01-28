@@ -1896,7 +1896,7 @@ class CVBot:
                             affiliate.orders += 1
                             affiliate.save()
                             
-                            buyer_identity = f"@{candidate.username}" if candidate.username else (candidate.fullName or "User")
+                            buyer_identity = candidate.get_full_name() or (f"User ({candidate.telegramUserId})" if getattr(candidate, "telegramUserId", None) else "User")
                             try:
                                 await context.bot.send_message(
                                     chat_id=int(candidate.referredBy),
